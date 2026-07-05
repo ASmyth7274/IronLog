@@ -18,20 +18,18 @@
   --nav-h:58px;
 }
 *{box-sizing:border-box}
-html{height:100%}
+html{height:100%;overflow:hidden}
 body{
   margin:0;background:var(--bg);color:var(--text);
   font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
   -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;
   overscroll-behavior:none;touch-action:manipulation;
-  /* app shell: fixed-height flex column with an internal scroller, so the tab
-     bar is glued to the true bottom from first paint on iOS — the document
-     itself never scrolls, so Safari's collapsing chrome can't shove it around.
-     Sized with 100dvh ONLY: do not size this from window.innerHeight — iOS
-     standalone (home-screen) under-reports innerHeight by the status-bar/
-     home-indicator area, which left the tab bar floating ~100px up. */
-  height:100%;
-  height:100dvh;
+  /* app shell pinned to the viewport EDGES, not sized by height units:
+     100dvh and window.innerHeight both misreport in iOS home-screen mode
+     (they exclude the status-bar / home-indicator bands), which left dead
+     space under the tab bar. position:fixed + inset:0 needs no height math —
+     the shell always spans exactly the real viewport. */
+  position:fixed;inset:0;
   overflow:hidden;
   display:flex;flex-direction:column;
 }
@@ -292,6 +290,27 @@ nav button.on svg{filter:drop-shadow(0 0 7px rgba(76,141,255,.65))}
 .mm-scale{display:flex;align-items:center;gap:8px;margin:12px 2px 2px;font-size:11px;color:var(--dim);font-weight:600}
 .mm-grad{flex:1;height:8px;border-radius:4px;background:linear-gradient(90deg,#22a355,#eab308,#ef4444)}
 .rec-chip{flex:0 0 auto;font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:10px}
+
+/* ---------- v3: set-complete pop ---------- */
+@keyframes chkpop{0%{transform:scale(1)}45%{transform:scale(1.3)}100%{transform:scale(1)}}
+.chk.pop{animation:chkpop .32s ease-out}
+
+/* ---------- v3: muscle map glow states (opacity anims = composited/cheap) ---------- */
+.mm-wrap g[data-m]{cursor:pointer}
+.mm-hot{filter:drop-shadow(0 0 5px rgba(255,70,70,.85));animation:mmpulse 1.1s ease-in-out infinite}
+.mm-warm{filter:drop-shadow(0 0 4px rgba(245,180,50,.6));animation:mmpulse 2.1s ease-in-out infinite}
+.mm-fresh{filter:drop-shadow(0 0 4px rgba(47,214,113,.5));animation:mmbreathe 3.4s ease-in-out infinite}
+@keyframes mmpulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes mmbreathe{0%,100%{opacity:.78}50%{opacity:1}}
+
+/* ---------- v3: radar flair ---------- */
+.chart-box canvas{position:relative;z-index:1}
+.radar-glow{position:absolute;inset:12%;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.2),transparent 65%)}
+.rfx{position:absolute;border-radius:50%;animation:rfxfloat 3s ease-in-out infinite}
+@keyframes rfxfloat{0%,100%{transform:translateY(0);opacity:.25}50%{transform:translateY(-9px);opacity:1}}
+
+/* ---------- v3: floating Add button in the exercise picker ---------- */
+.sticky-add{position:sticky;bottom:-1px;padding:12px 0 6px;background:linear-gradient(transparent,var(--card) 40%);z-index:3}
 </style>
 </head>
 <body>
@@ -373,7 +392,12 @@ nav button.on svg{filter:drop-shadow(0 0 7px rgba(76,141,255,.65))}
    Weights are stored as entered, in the currently selected unit.
    ========================================================================== */
 
-const MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Quads','Hamstrings','Glutes','Calves','Abs','Traps'];
+const BASE_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Quads','Hamstrings','Glutes','Calves','Abs','Traps'];
+// v3 granular additions — purely additive so old saves/JSON backups keep
+// working: the original 12 remain valid picks, granular ones map to a parent
+// region for the radar and the body map via REGION.
+const MUSCLES=[...BASE_MUSCLES,'Front Delts','Side Delts','Rear Delts','Adductors','Abductors','Lower Back','Obliques'];
+const REGION={'Front Delts':'Shoulders','Side Delts':'Shoulders','Rear Delts':'Shoulders','Adductors':'Quads','Abductors':'Glutes','Lower Back':'Back','Obliques':'Abs'};
 const EQUIP=['Barbell','Dumbbell','Machine','Cable','Bodyweight','Kettlebell','Smith Machine','Band','Other'];
 const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false};
 
@@ -434,7 +458,19 @@ E('x52','Cable Crunch','Abs',[],'Cable'),
 E('x53','Hanging Leg Raise','Abs',['Forearms'],'Bodyweight'),
 E('x54','Kettlebell Swing','Glutes',['Hamstrings','Back'],'Kettlebell'),
 E('x55',"Farmer's Carry",'Forearms',['Traps','Abs'],'Dumbbell'),
+E('x56','Hip Adduction Machine','Adductors',[],'Machine'),
+E('x57','Hip Abduction Machine','Abductors',['Glutes'],'Machine'),
+E('x58','Back Extension','Lower Back',['Glutes','Hamstrings'],'Bodyweight'),
+E('x59','Cable Woodchop','Obliques',['Abs'],'Cable'),
 ];
+// upgrade old seed muscle tags to the granular groups (idempotent, seeds only)
+const SEED_PATCH={
+  x22:{m:'Rear Delts',s:['Traps','Back']},
+  x23:{m:'Side Delts',s:[]},
+  x24:{m:'Side Delts',s:[]},
+  x25:{m:'Front Delts',s:[]},
+  x26:{m:'Rear Delts',s:['Back']},
+};
 
 /* ---------------- IndexedDB ---------------- */
 let db=null;
@@ -818,7 +854,8 @@ function pickExercises({multi=true,title='Add exercises',onDone,allowCreate=true
         if(multi){sel.add(ex.id);updateAdd();rows();}
         else{close();onDone([ex.id]);}
       })},'+ New'):null)),
-    list,addBtn);
+    list,
+    addBtn?h('div',{class:'sticky-add'},addBtn):null);
   const close=sheet(title,c);
   rows();updateAdd();
 }
@@ -986,6 +1023,8 @@ function toggleDone(i,j,row,wIn,rIn){
     startRest(ex&&ex.restSec!=null?ex.restSec:S.set.restSec,ex?ex.name:'');
     checkPR(en.exId,st,row);
     maybeEncourage(en,st,j);
+    setDoneFX(row.querySelector('.chk'),
+      !!st.pr||(g&&g.w!=null&&st.w!=null&&st.w>=g.w)||(st.rpe!=null&&st.rpe>=9));
   }else{
     st.done=false;row.classList.remove('done');
   }
@@ -1039,8 +1078,9 @@ function exMenu(i){
     mk('Setup note — machine · form · gear',()=>pinSheet(ex,i)),
     mk('Session note (this workout only)',()=>noteSheet(en,i)),
     mk('Rest timer for this exercise',()=>restOverrideSheet(ex)),
-    mk('Plate calculator',()=>plateSheet(bestWeightGuess(en))),
+    mk('Plate calculator',()=>plateSheet(bestWeightGuess(en),ex)),
     mk('Warm-up calculator',()=>warmupSheet(i)),
+    mk('Substitute exercise',()=>substituteSheet(i)),
     i>0?mk('Move up',()=>{const x=S.active.exs;[x[i-1],x[i]]=[x[i],x[i-1]];saveActive();renderLog();}):null,
     i<S.active.exs.length-1?mk('Move down',()=>{const x=S.active.exs;[x[i+1],x[i]]=[x[i],x[i+1]];saveActive();renderLog();}):null,
     mk('Remove exercise',async()=>{
@@ -1082,15 +1122,28 @@ function restOverrideSheet(ex){
       await dbPut('exercises',ex);close();toast('Rest time saved');
     }},'Save')));
 }
-function plateSheet(defW){
+function plateSheet(defW,ex){
   const res=h('div',{class:'mt12'});
   const inp=h('input',{class:'in num',inputmode:'decimal',
     value:defW?fmtW(defW):'',placeholder:'Target weight ('+S.set.unit+')',oninput:calc});
+  // per-exercise starting weight: plate-loaded machines start anywhere from
+  // 0 to 20+ — saved on the exercise so each machine remembers its own
+  const baseIn=h('input',{class:'in num',inputmode:'decimal',
+    value:fmtW(ex&&ex.baseW!=null?ex.baseW:S.set.barWeight),
+    oninput:async e=>{
+      const v=pf(e.target.value);
+      if(ex){
+        if(v==null)delete ex.baseW;else ex.baseW=v;
+        await dbPut('exercises',ex);
+      }
+      calc();
+    }});
+  const baseVal=()=>{const v=pf(baseIn.value);return v==null?S.set.barWeight:v;};
   function calc(){
     const w=pf(inp.value);
     res.replaceChildren();
     if(w==null)return;
-    const bar=S.set.barWeight;
+    const bar=baseVal();
     if(w<bar){res.append(h('p',{class:'small dim'},'Below bar weight ('+fmtW(bar)+' '+S.set.unit+')'));return;}
     let per=(w-bar)/2;
     const out=[];
@@ -1116,8 +1169,12 @@ function plateSheet(defW){
     if(per>0.01)res.append(h('p',{class:'small',style:'color:var(--amb);margin-top:8px;text-align:center'},fmtW(round1(per*2))+' '+S.set.unit+' can’t be made with your plates'));
   }
   sheet('Plate calculator',h('div',{},
-    h('p',{class:'tiny dim',style:'margin:0 2px 8px'},'Bar '+fmtW(S.set.barWeight)+' '+S.set.unit+' · plates '+S.set.plates.join('/')+' — edit in Settings'),
-    inp,res));
+    h('span',{class:'lbl'},'Target weight ('+S.set.unit+')'),inp,
+    h('span',{class:'lbl'},'Bar / machine start weight'),baseIn,
+    h('p',{class:'tiny dim',style:'margin:5px 2px 0'},
+      (ex?'Saved for '+ex.name+' — use 0 for machines that start empty.':'Global bar weight — open from an exercise’s menu to save per-machine.')
+      +'  Plates: '+S.set.plates.join('/')),
+    res));
   calc();
 }
 function warmupSheet(i){
@@ -1150,6 +1207,38 @@ function warmupSheet(i){
       saveActive();close();replaceCard(i);toast('Warm-up sets added');
     }},'Add as warm-up sets')));
   calc();
+}
+// swap an exercise mid-workout (machine taken, gym busy) — candidates ranked
+// by primary/secondary muscle overlap; granular groups match their parent too
+function substituteSheet(i){
+  const en=S.active.exs[i],ex=S.ex.get(en.exId);
+  if(!ex)return;
+  const nm=m=>REGION[m]||m;
+  const cands=[...S.ex.values()].filter(x=>x.id!==ex.id).map(x=>{
+    let sc=0;
+    if(x.m===ex.m)sc+=4;else if(nm(x.m)===nm(ex.m))sc+=3;
+    if((ex.s||[]).some(s2=>nm(s2)===nm(x.m)))sc+=2;
+    if((x.s||[]).some(s2=>nm(s2)===nm(ex.m)))sc+=2;
+    sc+=(x.s||[]).filter(s2=>(ex.s||[]).map(nm).includes(nm(s2))).length*.5;
+    if(x.e===ex.e)sc+=.5;
+    return{x,sc};
+  }).filter(o=>o.sc>0).sort((a,b)=>b.sc-a.sc).slice(0,20);
+  const rows=cands.map(({x})=>{
+    const p=prevSetsFor(x.id);
+    return h('div',{class:'ex-row',onclick:()=>{
+      en.exId=x.id;
+      if(!(x.id in S.prev))S.prev[x.id]=prevSetsFor(x.id);
+      if(!(x.id in S.records))S.records[x.id]=computeRecords(x.id);
+      saveActive();close();replaceCard(i);
+      toast('Swapped to '+x.name);
+    }},
+    h('div',{class:'grow'},
+      h('div',{class:'bold',style:'font-size:15.5px'},x.name),
+      h('div',{class:'tiny dim'},x.m+(x.s&&x.s.length?', '+x.s.join(', '):'')+' · '+x.e+(p?'  ·  last '+fmtDateShort(p.date):''))));
+  });
+  const close=sheet('Substitute · '+ex.name,h('div',{},
+    h('p',{class:'tiny dim',style:'margin:0 2px 8px'},'Closest matches by trained muscles — sets you’ve already logged keep their values.'),
+    rows.length?rows:h('p',{class:'small dim',style:'padding:10px 2px'},'No similar exercises found.')));
 }
 function woMenu(){
   const a=S.active;
@@ -1655,6 +1744,7 @@ function renderProgress(){
     sp.any?rbox:h('p',{class:'small dim',style:'padding:10px 2px'},'Log free-weight or bodyweight lifts to build your radar — machine loads aren’t comparable.'),
     h('p',{class:'tiny dim',style:'margin:8px 2px 0'},'Best est. 1RM per muscle vs bodyweight-scaled standards. 100 ≈ advanced. Free-weight & bodyweight lifts only.')));
   if(sp.any){
+    radarFX(rbox);
     const cvr=h('canvas');rbox.append(cvr);
     requestAnimationFrame(()=>drawRadar(cvr,sp));
   }
@@ -1704,7 +1794,9 @@ function balanceEl(){
   const max=rows[0]?rows[0][1]:0;
   if(!max)return h('p',{class:'small dim',style:'padding:8px 2px'},'Log some weighted sets and your balance will show here.');
   const wrap=h('div');
+  const zero=[];
   for(const[m,v]of rows){
+    if(!v){zero.push(m);continue;}
     const pct=Math.round(v/max*100);
     wrap.append(h('div',{class:'bal-row'},
       h('div',{class:'nm'},m),
@@ -1712,6 +1804,7 @@ function balanceEl(){
         style:'width:'+pct+'%;'+(pct<35?'background:var(--red)':pct<60?'background:var(--amb)':'')})),
       h('div',{class:'pct num'},pct+'%')));
   }
+  if(zero.length)wrap.append(h('p',{class:'tiny dim',style:'margin:8px 2px 0'},'No recent volume: '+zero.join(', ')));
   return wrap;
 }
 
@@ -1887,6 +1980,29 @@ function maybeEncourage(en,st,j){
     toast('💬 '+ENC[Math.floor(Math.random()*ENC.length)],{dur:4200});
   }
 }
+// small tactile burst when a set is checked off: ripple ring + button pop,
+// plus a few sparks when the set matched/beat the previous session or was
+// near-maximal (RPE ≥ 9). Deliberately subtler than the PR confetti.
+function setDoneFX(el,big){
+  if(!el)return;
+  el.classList.remove('pop');void el.offsetWidth;el.classList.add('pop');
+  const r=el.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+  const ring=h('div',{style:'position:fixed;left:'+cx+'px;top:'+cy+'px;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--grn);z-index:75;pointer-events:none'});
+  document.body.append(ring);
+  ring.animate([{transform:'scale(1)',opacity:.85},{transform:'scale(6.5)',opacity:0}],
+    {duration:480,easing:'ease-out'}).onfinish=()=>ring.remove();
+  if(!big)return;
+  const colors=['#2fd671','#ffcf4d','#4c8dff'];
+  for(let i=0;i<9;i++){
+    const sz=3+Math.random()*3,c=colors[i%3];
+    const p=h('div',{style:'position:fixed;left:'+cx+'px;top:'+cy+'px;width:'+sz+'px;height:'+sz+'px;border-radius:50%;background:'+c+';box-shadow:0 0 6px '+c+';z-index:75;pointer-events:none'});
+    document.body.append(p);
+    const a=(i/9)*Math.PI*2+Math.random()*.5,v=34+Math.random()*30;
+    p.animate([{transform:'translate(0,0)',opacity:1},
+      {transform:'translate('+Math.cos(a)*v+'px,'+(Math.sin(a)*v-12)+'px)',opacity:0}],
+      {duration:520+Math.random()*250,easing:'cubic-bezier(.2,.7,.4,1)'}).onfinish=()=>p.remove();
+  }
+}
 // confetti burst for PRs
 function celebrate(){
   const colors=['#ffcf4d','#4c8dff','#2fd671','#ef4444','#8b5cf6','#f59e0b','#ffffff'];
@@ -1953,35 +2069,66 @@ function agoTxt(ts){
   const d=Math.floor((Date.now()-ts)/864e5);
   return d<=0?'today':d===1?'1d ago':d+'d ago';
 }
-// stylised front/back muscle map (SVG assembled from simple shapes)
+// max-fold a set of muscle stats (used to light a drawn region from
+// granular groups, e.g. delts → the shoulder shape)
+function foldMax(rec,names){
+  let f=0,last=null,trained=false;
+  for(const n of names){
+    const r=rec[n];
+    if(!r||r.last==null)continue;
+    trained=true;
+    if(r.fatigue>f)f=r.fatigue;
+    if(!last||r.last>last)last=r.last;
+  }
+  return trained?{fatigue:f,last}:{fatigue:0,last:null};
+}
+// stylised low-poly front/back muscle map. Groups carry a glow class:
+// pulsing red (fatigued) → amber → breathing green (fresh) → grey (untrained)
 function bodySVG(view,rec){
-  const f=m=>{const r=rec[m];return r&&r.last!=null?fatigueColor(r.fatigue):'#242a35';};
-  const sh=(m,inner)=>'<g data-m="'+m+'" fill="'+f(m)+'" stroke="rgba(0,0,0,.4)" stroke-width="1">'+inner+'</g>';
-  const gray=inner=>'<g fill="#1d222c" stroke="rgba(255,255,255,.05)" stroke-width="1">'+inner+'</g>';
-  const el=(x,y,rx,ry,rot)=>'<ellipse cx="'+x+'" cy="'+y+'" rx="'+rx+'" ry="'+ry+'"'+(rot?' transform="rotate('+rot+' '+x+' '+y+')"':'')+'/>';
+  const rec2={...rec,
+    Shoulders:foldMax(rec,view==='front'?['Shoulders','Front Delts','Side Delts']:['Shoulders','Rear Delts','Side Delts'])};
+  const f=m=>{const r=rec2[m];return r&&r.last!=null?fatigueColor(r.fatigue):'#242a35';};
+  const cls=m=>{const r=rec2[m];return !r||r.last==null?'mm-cold':r.fatigue>=67?'mm-hot':r.fatigue>=30?'mm-warm':'mm-fresh';};
+  const sh=(m,inner)=>'<g data-m="'+m+'" class="'+cls(m)+'" fill="'+f(m)+'" stroke="rgba(0,0,0,.45)" stroke-width="1" stroke-linejoin="round">'+inner+'</g>';
+  const gray=inner=>'<g fill="#1d222c" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-linejoin="round">'+inner+'</g>';
+  const P=pts=>'<polygon points="'+pts+'"/>';
+  const MIR=pts=>pts.split(' ').map(pt=>{const c=pt.split(',');return (120-parseFloat(c[0]))+','+c[1];}).join(' ');
+  const PM=pts=>P(pts)+P(MIR(pts));   // shape + mirrored twin
   let s='';
   if(view==='front'){
-    s+=gray('<circle cx="60" cy="15" r="9.5"/><rect x="54" y="23" width="12" height="8" rx="3"/><rect x="45" y="88" width="30" height="14" rx="7"/>'
-      +el(50,148,5.5,6)+el(70,148,5.5,6)+el(50,176,6,19)+el(70,176,6,19)+el(48,199,7.5,4)+el(72,199,7.5,4)
-      +'<circle cx="22" cy="99" r="4.5"/><circle cx="98" cy="99" r="4.5"/>');
-    s+=sh('Traps','<path d="M48 28 L42 36 L60 33 L78 36 L72 28 Z"/>');
-    s+=sh('Shoulders','<circle cx="37" cy="39" r="9"/><circle cx="83" cy="39" r="9"/>');
-    s+=sh('Chest',el(50,50,11,9)+el(70,50,11,9));
-    s+=sh('Biceps',el(31,61,6,10,8)+el(89,61,6,10,-8));
-    s+=sh('Forearms',el(26,83,5,12,10)+el(94,83,5,12,-10));
-    s+=sh('Abs','<rect x="51" y="59" width="18" height="30" rx="7"/><line x1="51" y1="69" x2="69" y2="69" stroke="#12151c" stroke-width="1.4"/><line x1="51" y1="78" x2="69" y2="78" stroke="#12151c" stroke-width="1.4"/><line x1="60" y1="60" x2="60" y2="88" stroke="#12151c" stroke-width="1.4"/>');
-    s+=sh('Quads',el(50,120,9,23)+el(70,120,9,23));
+    s+=gray(P('60,4 68,9 68,20 60,25 52,20 52,9')+P('55,24 65,24 66,31 54,31')
+      +P('48,92 72,92 70,102 50,102')
+      +PM('18,95 26,96 24,105 17,103')
+      +PM('45,144 55,144 54,153 46,153')
+      +PM('45,156 55,156 53,192 47,192 43,172')
+      +PM('42,195 55,195 54,203 40,201'));
+    s+=sh('Traps',P('46,33 60,28 74,33 60,36'));
+    s+=sh('Shoulders',PM('28,33 39,30 44,36 41,45 30,46 25,39'));
+    s+=sh('Chest',PM('43,40 59,43 59,59 46,57 40,49'));
+    s+=sh('Biceps',PM('26,48 35,51 34,67 25,68 23,58'));
+    s+=sh('Forearms',PM('22,71 31,72 28,93 19,90 19,80'));
+    s+=sh('Obliques',PM('45,60 50,62 51,88 45,80'));
+    s+=sh('Abs',P('51,61 69,61 67,89 60,92 53,89')
+      +'<line x1="52" y1="70" x2="68" y2="70" stroke="#12151c" stroke-width="1.3"/>'
+      +'<line x1="52" y1="79" x2="68" y2="79" stroke="#12151c" stroke-width="1.3"/>'
+      +'<line x1="60" y1="62" x2="60" y2="91" stroke="#12151c" stroke-width="1.3"/>');
+    s+=sh('Quads',PM('42,101 58,103 56,140 46,142 39,122'));
+    s+=sh('Adductors',PM('58,105 60,107 59,130 56,124'));
   }else{
-    s+=gray('<circle cx="60" cy="15" r="9.5"/><rect x="54" y="23" width="12" height="7" rx="3"/><rect x="46" y="86" width="28" height="8" rx="4"/>'
-      +'<circle cx="22" cy="99" r="4.5"/><circle cx="98" cy="99" r="4.5"/>'
-      +el(26,83,5,12,10)+el(94,83,5,12,-10)+el(50,154,5,5)+el(70,154,5,5)+el(48,199,7.5,4)+el(72,199,7.5,4));
-    s+=sh('Traps','<path d="M60 24 L40 38 Q60 31 80 38 Z"/><path d="M47 38 L73 38 L60 60 Z"/>');
-    s+=sh('Shoulders','<circle cx="37" cy="39" r="9"/><circle cx="83" cy="39" r="9"/>');
-    s+=sh('Back','<path d="M57 45 C45 46 41 58 46 72 C50 81 57 85 57 85 Z"/><path d="M63 45 C75 46 79 58 74 72 C70 81 63 85 63 85 Z"/><rect x="54" y="80" width="12" height="12" rx="4"/>');
-    s+=sh('Triceps',el(31,61,6,10,8)+el(89,61,6,10,-8));
-    s+=sh('Glutes',el(51,101,9.5,9)+el(69,101,9.5,9));
-    s+=sh('Hamstrings',el(50,131,8.5,20)+el(70,131,8.5,20));
-    s+=sh('Calves',el(50,177,6.5,16)+el(70,177,6.5,16));
+    s+=gray(P('60,4 68,9 68,20 60,25 52,20 52,9')+P('55,24 65,24 66,30 54,30')
+      +PM('18,95 26,96 24,105 17,103')
+      +PM('22,71 31,72 28,93 19,90 19,80')
+      +PM('46,154 56,154 55,162 47,162')
+      +PM('42,195 56,195 55,203 40,201'));
+    s+=sh('Traps',P('60,25 42,37 54,41 60,60 66,41 78,37'));
+    s+=sh('Shoulders',PM('28,33 39,30 44,36 41,45 30,46 25,39'));
+    s+=sh('Back',PM('44,42 57,47 57,82 48,73 41,57'));
+    s+=sh('Lower Back',P('60,72 67,80 60,96 53,80'));
+    s+=sh('Triceps',PM('26,48 35,51 34,67 25,68 23,58'));
+    s+=sh('Abductors',PM('39,93 44,95 42,112 36,105'));
+    s+=sh('Glutes',PM('45,95 59,94 59,114 47,114 42,104'));
+    s+=sh('Hamstrings',PM('43,116 58,116 56,150 46,152 40,133'));
+    s+=sh('Calves',PM('44,164 56,164 54,192 46,192 42,176'));
   }
   return '<svg viewBox="0 0 120 212" xmlns="http://www.w3.org/2000/svg">'+s+'</svg>';
 }
@@ -1994,8 +2141,9 @@ function recoveryCard(){
   wrap.addEventListener('click',e=>{
     const g=e.target.closest('[data-m]');
     if(!g)return;
-    const m=g.dataset.m,r=rec[m];
-    toast(m+': '+(r.last==null?'not trained yet':fatLabel(r.fatigue)+' · last hit '+agoTxt(r.last)+' · fatigue '+r.fatigue+'%'));
+    const m=g.dataset.m;
+    const r=m==='Shoulders'?foldMax(rec,['Shoulders','Front Delts','Side Delts','Rear Delts']):rec[m];
+    toast(m+': '+(!r||r.last==null?'not trained yet':fatLabel(r.fatigue)+' · last hit '+agoTxt(r.last)+' · fatigue '+r.fatigue+'%'));
   });
   card.append(wrap,
     h('div',{class:'mm-scale'},h('span',{},'Fresh'),h('div',{class:'mm-grad'}),h('span',{},'Fatigued')),
@@ -2016,7 +2164,8 @@ function recoveryCard(){
    Best est. 1RM per muscle ÷ (bodyweight × reference multiplier) × 100.
    100 ≈ advanced ("Pro"+). Machines/cables excluded (loads aren't comparable).
    ========================================================================== */
-const STR_REF={Chest:1.25,Back:1.5,Shoulders:.85,Biceps:.6,Triceps:.9,Forearms:.7,Quads:1.8,Hamstrings:1.4,Glutes:2,Calves:1.6,Abs:.6,Traps:1.6};
+const STR_REF={Chest:1.25,Back:1.5,Shoulders:.85,Biceps:.6,Triceps:.9,Forearms:.7,Quads:1.8,Hamstrings:1.4,Glutes:2,Calves:1.6,Abs:.6,Traps:1.6,
+  'Front Delts':.8,'Side Delts':.5,'Rear Delts':.5,'Adductors':1.2,'Abductors':1,'Lower Back':1.4,'Obliques':.6};
 const STR_EQUIP=new Set(['Barbell','Dumbbell','Smith Machine','Bodyweight','Kettlebell']);
 const RADAR_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Quads','Hamstrings','Glutes'];
 function strengthProfile(){
@@ -2033,10 +2182,15 @@ function strengthProfile(){
     }
   }
   const per={};
-  for(const m of MUSCLES)per[m]=best[m]?Math.round(best[m].v/(bw*STR_REF[m])*100):0;
-  const any=RADAR_MUSCLES.some(m=>per[m]>0);
-  const score=any?Math.round(RADAR_MUSCLES.reduce((t,m)=>t+Math.min(per[m],140),0)/RADAR_MUSCLES.length):0;
-  return {per,score,bw,hasBw:!!bwEntry,best,any};
+  for(const m of MUSCLES)per[m]=best[m]&&STR_REF[m]?Math.round(best[m].v/(bw*STR_REF[m])*100):0;
+  // granular groups feed their parent's radar axis (best of parent/children)
+  const radar={};
+  for(const m of RADAR_MUSCLES)radar[m]=per[m]||0;
+  for(const[g,parent]of Object.entries(REGION))
+    if(radar[parent]!=null&&(per[g]||0)>radar[parent])radar[parent]=per[g];
+  const any=RADAR_MUSCLES.some(m=>radar[m]>0);
+  const score=any?Math.round(RADAR_MUSCLES.reduce((t,m)=>t+Math.min(radar[m],140),0)/RADAR_MUSCLES.length):0;
+  return {per,radar,score,bw,hasBw:!!bwEntry,best,any};
 }
 const strengthLabel=s=>s<20?'Noob':s<40?'Novice':s<65?'Pro':s<85?'Master':s<105?'Olympian':'Superhuman';
 function drawRadar(cv,sp){
@@ -2044,9 +2198,13 @@ function drawRadar(cv,sp){
   if(CH.radar)CH.radar.destroy();
   CH.radar=new Chart(cv,{type:'radar',
     data:{labels:RADAR_MUSCLES,
-      datasets:[{data:RADAR_MUSCLES.map(m=>Math.min(140,sp.per[m]||0)),
-        backgroundColor:'rgba(139,92,246,.22)',borderColor:'#8b5cf6',borderWidth:2,
-        pointBackgroundColor:'#8b5cf6',pointRadius:3}]},
+      datasets:[
+        {data:RADAR_MUSCLES.map(m=>Math.min(140,sp.radar[m]||0)),
+          backgroundColor:'rgba(139,92,246,.28)',borderColor:'#8b5cf6',borderWidth:2.5,
+          pointBackgroundColor:'#c4a5ff',pointBorderColor:'#8b5cf6',pointRadius:4,pointBorderWidth:1.5},
+        {data:RADAR_MUSCLES.map(()=>100),   // "advanced" reference ring
+          borderColor:'rgba(255,207,77,.45)',borderWidth:1.5,borderDash:[5,5],
+          fill:false,pointRadius:0}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false}},
       scales:{r:{beginAtZero:true,suggestedMax:100,
@@ -2054,6 +2212,15 @@ function drawRadar(cv,sp){
         grid:{color:'rgba(255,255,255,.08)'},
         angleLines:{color:'rgba(255,255,255,.08)'},
         pointLabels:{color:'#8f97a8',font:{size:10.5}}}}}});
+}
+// floating glow-dust behind the radar (pure CSS animation, composited)
+function radarFX(box){
+  box.append(h('div',{class:'radar-glow'}));
+  const colors=['#8b5cf6','#4c8dff','#ffcf4d'];
+  for(let i=0;i<12;i++){
+    const c=colors[i%3],sz=2+Math.random()*3.5;
+    box.append(h('div',{class:'rfx',style:'left:'+(8+Math.random()*84)+'%;top:'+(8+Math.random()*84)+'%;width:'+sz+'px;height:'+sz+'px;background:'+c+';box-shadow:0 0 '+(4+sz)+'px '+c+';animation-duration:'+(2.5+Math.random()*3)+'s;animation-delay:-'+(Math.random()*3).toFixed(2)+'s'}));
+  }
 }
 
 /* ==========================================================================
@@ -2087,6 +2254,13 @@ async function loadAll(){
 async function boot(){
   await openDB();
   await loadAll();
+  // v3 backfill for existing installs: add new seed exercises, apply granular
+  // muscle tags to old seeds (custom exercises & imports are never touched)
+  for(const e of SEED)if(!S.ex.has(e.id)){S.ex.set(e.id,e);await dbPut('exercises',e);}
+  for(const[id,p]of Object.entries(SEED_PATCH)){
+    const e=S.ex.get(id);
+    if(e&&e.m!==p.m){e.m=p.m;e.s=p.s;await dbPut('exercises',e);}
+  }
   S.set={...DEF,...((await kvGet('settings'))||{})};
   S.active=(await kvGet('active'))||null;
   if(S.active)for(const en of S.active.exs){       // restore caches for a resumed session
@@ -2102,10 +2276,19 @@ async function boot(){
     const el=$('#wo-dur');
     if(el&&S.active)el.textContent=fmtDur((Date.now()-S.active.startedAt)/1000);
   },1000);
-  // Shell height is pure CSS (100dvh) — the engine recomputes it itself when
-  // browser chrome settles or the device rotates. A JS override from
-  // window.innerHeight was tried and reverted: iOS standalone under-reports
-  // innerHeight, which pinned the tab bar ~100px above the screen bottom.
+  // iOS keyboard healing: the keyboard pans the page to reveal the focused
+  // input and can leave it panned after dismissal (header clipped under the
+  // status bar, dead space under the nav). Centre focused inputs inside the
+  // internal scroller so iOS barely needs to pan, and snap the window back
+  // whenever focus leaves an input.
+  document.addEventListener('focusin',e=>{
+    if(e.target.matches&&e.target.matches('input,textarea'))
+      setTimeout(()=>{try{e.target.scrollIntoView({block:'center',behavior:'smooth'});}catch(err){}},300);
+  });
+  addEventListener('focusout',()=>setTimeout(()=>{
+    const a=document.activeElement;
+    if(!a||!(a.matches&&a.matches('input,textarea')))window.scrollTo(0,0);
+  },60));
   // service worker: rest-over notifications + offline cache (needs secure context)
   if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js').catch(()=>{});
   // returning to a throttled tab: sync the timer display immediately
