@@ -399,6 +399,7 @@ const BASE_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Qu
 const MUSCLES=[...BASE_MUSCLES,'Front Delts','Side Delts','Rear Delts','Adductors','Abductors','Lower Back','Obliques'];
 const REGION={'Front Delts':'Shoulders','Side Delts':'Shoulders','Rear Delts':'Shoulders','Adductors':'Quads','Abductors':'Glutes','Lower Back':'Back','Obliques':'Abs'};
 const EQUIP=['Barbell','Dumbbell','Machine','Cable','Bodyweight','Kettlebell','Smith Machine','Band','Other'];
+const APP_VER='3.1';   // shown in Settings — lets you check which build a device runs
 const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false};
 
 const E=(id,name,m,s,e)=>({id,name,m,s,e});
@@ -607,8 +608,10 @@ function prevSetsFor(exId){
   }
   return best;
 }
-// All-time records for an exercise (warm-ups excluded).
+// All-time records for an exercise (warm-ups excluded; bodyweight included
+// for Bodyweight-equipment lifts, recalculated against your latest bodyweight).
 function computeRecords(exId){
+  const ex=S.ex.get(exId);
   let e1=null,wr=null,vr=null,found=false;
   for(const w of S.workouts){
     const en=w.exs.find(x=>x.exId===exId);
@@ -616,7 +619,7 @@ function computeRecords(exId){
     let vol=0;
     for(const st of en.sets){
       if(st.t==='W')continue;
-      const wt=st.w||0,r=st.r||0;
+      const wt=loadOf(ex,st),r=st.r||0;
       vol+=wt*r;
       if(wt>0&&r>0){
         found=true;
@@ -630,7 +633,29 @@ function computeRecords(exId){
   return {e1rm:e1,w:wr,vol:vr,fresh:!found};
 }
 const setVol=st=>(st.w||0)*(st.r||0);
-function workoutVolume(w){let v=0;for(const en of w.exs)for(const st of en.sets){if(st.t!=='W')v+=setVol(st);}return v;}
+/* Bodyweight-equipment exercises: the typed weight is the ADDED load; all
+   volume/1RM/records/radar math counts your latest logged bodyweight on top.
+   Display (PREV column, set rows, history lines) stays as typed. */
+let BW_CACHE=null;   // invalidated whenever body entries change
+function latestBW(){
+  if(BW_CACHE==null){
+    const e=[...S.body].filter(b=>b.key==='Weight').sort((a,b)=>b.date-a.date)[0];
+    BW_CACHE=e?e.value:(S.set.unit==='kg'?75:165);
+  }
+  return BW_CACHE;
+}
+function loadOf(ex,st){   // effective load of a set
+  const w=st.w||0;
+  return ex&&ex.e==='Bodyweight'?w+latestBW():w;
+}
+function workoutVolume(w){
+  let v=0;
+  for(const en of w.exs){
+    const ex=S.ex.get(en.exId);
+    for(const st of en.sets)if(st.t!=='W')v+=loadOf(ex,st)*(st.r||0);
+  }
+  return v;
+}
 function workoutSets(w){let n=0;for(const en of w.exs)n+=en.sets.length;return n;}
 const workoutsDesc=()=>[...S.workouts].sort((a,b)=>b.finishedAt-a.finishedAt);
 
@@ -696,7 +721,7 @@ function settingsSheet(){
     onchange:e=>{if(e.target.files[0])importJSON(e.target.files[0]);e.target.value='';}});
   c.append(h('hr'),
     h('p',{class:'small dim',style:'margin:0 2px 10px'},
-      S.workouts.length+' workouts · '+S.ex.size+' exercises · '+S.photos.length+' photos — all stored on this device.'),
+      S.workouts.length+' workouts · '+S.ex.size+' exercises · '+S.photos.length+' photos — all stored on this device. · IronLog v'+APP_VER),
     h('button',{class:'btn',onclick:exportJSON},'Export data (JSON backup)'),
     h('button',{class:'btn mt8',onclick:()=>importFile.click()},'Import data'),
     h('button',{class:'btn danger mt8',onclick:eraseAll},'Erase all data'),
@@ -936,7 +961,10 @@ function renderLog(){
 function updateWoStats(){
   if(!S.active)return;
   let sets=0,vol=0;
-  for(const en of S.active.exs)for(const st of en.sets)if(st.done){sets++;if(st.t!=='W')vol+=setVol(st);}
+  for(const en of S.active.exs){
+    const ex=S.ex.get(en.exId);
+    for(const st of en.sets)if(st.done){sets++;if(st.t!=='W')vol+=loadOf(ex,st)*(st.r||0);}
+  }
   const se=$('#wo-sets'),ve=$('#wo-vol');
   if(se)se.textContent=sets;
   if(ve)ve.textContent=fmtVol(vol);
@@ -949,7 +977,7 @@ function exCard(i){
   card.append(h('div',{class:'row'},
     h('div',{class:'grow'},
       h('div',{class:'exname'},ex?ex.name:'Unknown exercise'),
-      h('div',{class:'exsub'},(ex?ex.m+' · '+ex.e:'')+(p?'   ·   last done '+fmtDateShort(p.date):'')),
+      h('div',{class:'exsub'},(ex?ex.m+' · '+ex.e+(ex.e==='Bodyweight'?' (+BW counted)':''):'')+(p?'   ·   last done '+fmtDateShort(p.date):'')),
     ),
     h('button',{class:'icon-btn',style:'width:40px;height:40px',onclick:()=>exMenu(i)},
       h('span',{style:'font-size:22px;letter-spacing:1px;color:var(--dim)'},'···'))));
@@ -1046,20 +1074,40 @@ function setTypeMenu(i,j){
 }
 
 /* ----- PR detection (live, while logging) ----- */
+// milestone "club" lifts: first time the bar hits 60/80/100/120… kg
+// (135/180/225… lb) on an exercise. Uses typed bar weight — plates, not BW.
+function milestoneFor(w,prevBest){
+  const step=S.set.unit==='kg'?20:45,start=S.set.unit==='kg'?60:135;
+  if(w<start)return null;
+  const m=Math.floor((w-start)/step)*step+start;   // highest milestone reached
+  if(prevBest!=null&&prevBest>=m)return null;      // already a member
+  return m;
+}
 function checkPR(exId,st,row){
   if(st.t==='W'||!st.r)return;
+  const ex=S.ex.get(exId);
+  const isBW=!!(ex&&ex.e==='Bodyweight');
   const rec=S.records[exId]||(S.records[exId]={e1rm:null,w:null,vol:null,fresh:true});
-  const w=st.w||0,e=w>0?epley(w,st.r):0;
+  const prevBestW=rec.w?rec.w.v:null;
+  const w=loadOf(ex,st),e=w>0?epley(w,st.r):0;
   const msgs=[];
-  if(w>0&&(!rec.w||w>rec.w.v+1e-9)){if(!rec.fresh)msgs.push('weight PR '+fmtW(w)+' '+S.set.unit);rec.w={v:w,date:Date.now()};}
+  if(w>0&&(!rec.w||w>rec.w.v+1e-9)){if(!rec.fresh)msgs.push('weight PR '+fmtW(w)+' '+S.set.unit+(isBW?' incl. BW':''));rec.w={v:w,date:Date.now()};}
   if(e>0&&(!rec.e1rm||e>rec.e1rm.v+1e-9)){if(!rec.fresh)msgs.push('est. 1RM PR '+fmtW(round1(e))+' '+S.set.unit);rec.e1rm={v:e,date:Date.now()};}
   if(msgs.length){
     st.pr=1;
     if(row)row.classList.add('prset');
-    const ex=S.ex.get(exId);
     const emo=['🚀','🎉','🔥','💥','⚡','🏆'][Math.floor(Math.random()*6)];
     toast(emo+' '+(ex?ex.name:'')+' — '+msgs.join(', '),{pr:true,dur:4500});
     celebrate();
+  }
+  if(!isBW&&st.w){
+    const m=milestoneFor(st.w,prevBestW);
+    if(m!=null){
+      st.pr=1;
+      if(row)row.classList.add('prset');
+      toast('💯 '+fmtW(m)+' '+S.set.unit+' CLUB — '+(ex?ex.name:'')+'!',{pr:true,dur:5500});
+      celebrateBig();
+    }
   }
 }
 
@@ -1268,9 +1316,12 @@ async function finishWorkout(){
   const a=S.active;
   if(!a)return;
   let done=0,pending=0,vol=0,prs=0;
-  for(const en of a.exs)for(const st of en.sets){
-    if(st.done){done++;if(st.t!=='W')vol+=setVol(st);if(st.pr)prs++;}
-    else if(st.w!=null||st.r!=null)pending++;
+  for(const en of a.exs){
+    const ex=S.ex.get(en.exId);
+    for(const st of en.sets){
+      if(st.done){done++;if(st.t!=='W')vol+=loadOf(ex,st)*(st.r||0);if(st.pr)prs++;}
+      else if(st.w!=null||st.r!=null)pending++;
+    }
   }
   if(!done){
     if(await ask('Nothing logged','No completed sets — discard this workout?','Discard',true)){
@@ -1300,9 +1351,10 @@ async function finishWorkout(){
       })})).filter(en=>en.sets.length);
     const volPRs=[];
     for(const en of exs){
-      const sv=en.sets.reduce((t2,s2)=>t2+(s2.t!=='W'?(s2.w||0)*(s2.r||0):0),0);
+      const x=S.ex.get(en.exId);
+      const sv=en.sets.reduce((t2,s2)=>t2+(s2.t!=='W'?loadOf(x,s2)*(s2.r||0):0),0);
       const rec=S.records[en.exId];
-      if(rec&&!rec.fresh&&rec.vol&&sv>rec.vol.v){const x=S.ex.get(en.exId);if(x)volPRs.push(x.name);}
+      if(rec&&!rec.fresh&&rec.vol&&sv>rec.vol.v&&x)volPRs.push(x.name);
     }
     const w={id:a.id,name:nameIn.value.trim()||a.name,notes:noteIn.value.trim(),
       startedAt:a.startedAt,finishedAt:Date.now(),dur,exs};
@@ -1651,6 +1703,7 @@ const chartFallback=()=>h('p',{class:'small dim',style:'padding:14px 2px'},'Char
 // per-session series for one exercise: est. 1RM, top-set weight, total volume
 function exSeries(exId,days){
   const cut=days?Date.now()-days*864e5:0;
+  const ex=S.ex.get(exId);
   const pts=[];
   for(const w of[...S.workouts].sort((a,b)=>a.finishedAt-b.finishedAt)){
     if(w.finishedAt<cut)continue;
@@ -1659,7 +1712,7 @@ function exSeries(exId,days){
     let e1=0,top=0,vol=0;
     for(const st of en.sets){
       if(st.t==='W')continue;
-      const wt=st.w||0,r=st.r||0;
+      const wt=loadOf(ex,st),r=st.r||0;
       vol+=wt*r;
       if(wt>top)top=wt;
       const e=epley(wt,r);
@@ -1680,7 +1733,7 @@ function muscleAgg(days,mode){
       if(!ex)continue;
       for(const st of en.sets){
         if(st.t==='W')continue;
-        const v=mode==='sets'?1:setVol(st);
+        const v=mode==='sets'?1:loadOf(ex,st)*(st.r||0);
         agg[ex.m]=(agg[ex.m]||0)+v;
         for(const s2 of ex.s||[])agg[s2]=(agg[s2]||0)+v*.5;
       }
@@ -1729,7 +1782,8 @@ function renderProgress(){
     h('h3',{},'Records'+(ex?' — '+ex.name:'')),
     recRow('Est. 1RM (Epley)',rec&&rec.e1rm,v=>fmtW(round1(v))+unit),
     recRow('Heaviest weight',rec&&rec.w,v=>fmtW(v)+unit),
-    recRow('Best session volume',rec&&rec.vol,v=>fmtVol(v)+unit)));
+    recRow('Best session volume',rec&&rec.vol,v=>fmtVol(v)+unit),
+    ex&&ex.e==='Bodyweight'?h('p',{class:'tiny dim',style:'margin:6px 2px 0'},'Includes your bodyweight ('+fmtW(latestBW())+' '+S.set.unit+') on top of any added weight.'):null));
   /* --- strength radar + score --- */
   const sp=strengthProfile();
   const rbox=h('div',{class:'chart-box',style:'height:255px'});
@@ -1855,6 +1909,7 @@ function renderBody(){
         if(await ask('Delete entry?',fmtW(b.value)+' on '+fmtDate(b.date),'Delete',true)){
           await dbDel('body',b.id);
           S.body=S.body.filter(x=>x.id!==b.id);
+          BW_CACHE=null;
           renderBody();
         }
       }},'✕')))));
@@ -1896,6 +1951,7 @@ function logBodySheet(key){
       const b={id:uid(),date:d,key,value:v};
       S.body.push(b);
       await dbPut('body',b);
+      BW_CACHE=null;
       close();renderBody();
     }},'Save')));
   setTimeout(()=>val.focus(),250);
@@ -2021,6 +2077,16 @@ function celebrate(){
     ],{duration:950+Math.random()*750,easing:'cubic-bezier(.15,.6,.4,1)',fill:'forwards'});
   }
   setTimeout(()=>wrap.remove(),1900);
+}
+// milestone lifts get the full show: triple confetti + golden screen flash
+function celebrateBig(){
+  const flash=h('div',{style:'position:fixed;inset:0;z-index:79;pointer-events:none;background:radial-gradient(circle,rgba(255,207,77,.3),transparent 70%);opacity:0'});
+  document.body.append(flash);
+  flash.animate([{opacity:0},{opacity:1},{opacity:0}],{duration:950,easing:'ease-out'}).onfinish=()=>flash.remove();
+  celebrate();
+  setTimeout(celebrate,350);
+  setTimeout(celebrate,700);
+  if(S.set.vibrate&&navigator.vibrate){try{navigator.vibrate([120,60,120,60,240]);}catch(e){}}
 }
 
 /* ==========================================================================
@@ -2176,8 +2242,10 @@ function strengthProfile(){
     const ex=S.ex.get(en.exId);
     if(!ex||!STR_EQUIP.has(ex.e))continue;
     for(const st of en.sets){
-      if(st.t==='W'||!st.w||!st.r)continue;
-      const e=epley(st.w,st.r);
+      if(st.t==='W'||!st.r)continue;
+      const eff=loadOf(ex,st);   // unweighted pull-ups etc. now count as BW
+      if(eff<=0)continue;
+      const e=epley(eff,st.r);
       if(!best[ex.m]||e>best[ex.m].v)best[ex.m]={v:e,name:ex.name};
     }
   }
@@ -2250,6 +2318,7 @@ async function loadAll(){
   S.templates=await allOf('templates');
   S.body=await allOf('body');
   S.photos=await allOf('photos');
+  BW_CACHE=null;
 }
 async function boot(){
   await openDB();
@@ -2275,6 +2344,7 @@ async function boot(){
   setInterval(()=>{
     const el=$('#wo-dur');
     if(el&&S.active)el.textContent=fmtDur((Date.now()-S.active.startedAt)/1000);
+    fixShell();   // heals a short standalone viewport within 1 s, event or not
   },1000);
   // iOS keyboard healing: the keyboard pans the page to reveal the focused
   // input and can leave it panned after dismissal (header clipped under the
@@ -2289,6 +2359,20 @@ async function boot(){
     const a=document.activeElement;
     if(!a||!(a.matches&&a.matches('input,textarea')))window.scrollTo(0,0);
   },60));
+  // iOS-standalone shell healer: visualViewport reports the true visible
+  // height; if the layout viewport came up short at cold launch (long-standing
+  // standalone quirk), grow the shell to match. Grow-only, so the keyboard
+  // (which only shrinks visualViewport) can never squash the layout.
+  function fixShell(){
+    if(!window.visualViewport)return;
+    const vv=Math.round(visualViewport.height);
+    const cur=Math.round(document.body.getBoundingClientRect().height);
+    if(vv-cur>2)document.body.style.height=vv+'px';
+  }
+  fixShell();
+  if(window.visualViewport)visualViewport.addEventListener('resize',fixShell);
+  addEventListener('pageshow',fixShell);
+  addEventListener('orientationchange',()=>{document.body.style.height='';setTimeout(fixShell,350);});
   // service worker: rest-over notifications + offline cache (needs secure context)
   if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js').catch(()=>{});
   // returning to a throttled tab: sync the timer display immediately
