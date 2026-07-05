@@ -20,10 +20,18 @@
 *{box-sizing:border-box}
 html{height:100%}
 body{
-  margin:0;min-height:100dvh;background:var(--bg);color:var(--text);
+  margin:0;background:var(--bg);color:var(--text);
   font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
   -webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;
-  overscroll-behavior-y:none;touch-action:manipulation;
+  overscroll-behavior:none;touch-action:manipulation;
+  /* app shell: fixed-height flex column with an internal scroller, so the tab
+     bar is glued to the true bottom from first paint on iOS — the document
+     itself never scrolls, so Safari's collapsing chrome can't shove it around */
+  height:100%;
+  height:100dvh;
+  height:var(--appvh,100dvh);
+  overflow:hidden;
+  display:flex;flex-direction:column;
 }
 button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;touch-action:manipulation;cursor:pointer}
 input,textarea,select{font:inherit;color:inherit}
@@ -32,7 +40,7 @@ h1,h2,h3,p{margin:0}
 
 /* ---------- header ---------- */
 header{
-  position:fixed;top:0;left:0;right:0;z-index:30;
+  flex:0 0 auto;z-index:30;
   padding:env(safe-area-inset-top) 14px 0;
   background:rgba(11,12,15,.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
   border-bottom:1px solid var(--line);
@@ -44,14 +52,18 @@ header{
 .icon-btn svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- main / pages ---------- */
-main{padding:calc(58px + env(safe-area-inset-top)) 13px calc(var(--nav-h) + env(safe-area-inset-bottom) + 96px)}
+main{
+  flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding:12px 13px 120px;   /* bottom clearance for the floating rest pill */
+}
 .page{display:none}
 .page.active{display:block}
 
 /* ---------- bottom nav ---------- */
 nav{
-  position:fixed;bottom:0;left:0;right:0;z-index:35;display:flex;
-  background:rgba(15,16,20,.92);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  flex:0 0 auto;z-index:35;display:flex;
+  background:#0f1014;
   border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
 }
 nav button{flex:1;height:var(--nav-h);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--dim);position:relative}
@@ -2054,7 +2066,8 @@ function switchTab(t){
   $$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
   $$('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+t));
   $('#htitle').textContent={log:'IronLog',templates:'Templates',history:'History',progress:'Progress',body:'Body'}[t];
-  window.scrollTo(0,0);
+  const m=$('main');
+  if(m)m.scrollTop=0;
   renderTab();
 }
 async function loadAll(){
@@ -2086,7 +2099,22 @@ async function boot(){
   setInterval(()=>{
     const el=$('#wo-dur');
     if(el&&S.active)el.textContent=fmtDur((Date.now()-S.active.startedAt)/1000);
+    setVH();   // drift check: heals the shell even if no resize event ever fired
   },1000);
+  // iOS cold-launch viewport correction: size the shell to the real viewport;
+  // resize fires once Safari/standalone chrome settles, snapping the tab bar
+  // to the true bottom without needing any user interaction
+  let lastVH=0;
+  const setVH=()=>{
+    if(window.innerHeight===lastVH)return;
+    lastVH=window.innerHeight;
+    document.documentElement.style.setProperty('--appvh',lastVH+'px');
+  };
+  setVH();
+  addEventListener('resize',setVH);
+  addEventListener('orientationchange',setVH);
+  addEventListener('pageshow',setVH);
+  if(window.visualViewport)visualViewport.addEventListener('resize',setVH);
   // service worker: rest-over notifications + offline cache (needs secure context)
   if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js').catch(()=>{});
   // returning to a throttled tab: sync the timer display immediately
