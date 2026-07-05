@@ -26,10 +26,12 @@ body{
   overscroll-behavior:none;touch-action:manipulation;
   /* app shell: fixed-height flex column with an internal scroller, so the tab
      bar is glued to the true bottom from first paint on iOS — the document
-     itself never scrolls, so Safari's collapsing chrome can't shove it around */
+     itself never scrolls, so Safari's collapsing chrome can't shove it around.
+     Sized with 100dvh ONLY: do not size this from window.innerHeight — iOS
+     standalone (home-screen) under-reports innerHeight by the status-bar/
+     home-indicator area, which left the tab bar floating ~100px up. */
   height:100%;
   height:100dvh;
-  height:var(--appvh,100dvh);
   overflow:hidden;
   display:flex;flex-direction:column;
 }
@@ -2099,22 +2101,11 @@ async function boot(){
   setInterval(()=>{
     const el=$('#wo-dur');
     if(el&&S.active)el.textContent=fmtDur((Date.now()-S.active.startedAt)/1000);
-    setVH();   // drift check: heals the shell even if no resize event ever fired
   },1000);
-  // iOS cold-launch viewport correction: size the shell to the real viewport;
-  // resize fires once Safari/standalone chrome settles, snapping the tab bar
-  // to the true bottom without needing any user interaction
-  let lastVH=0;
-  const setVH=()=>{
-    if(window.innerHeight===lastVH)return;
-    lastVH=window.innerHeight;
-    document.documentElement.style.setProperty('--appvh',lastVH+'px');
-  };
-  setVH();
-  addEventListener('resize',setVH);
-  addEventListener('orientationchange',setVH);
-  addEventListener('pageshow',setVH);
-  if(window.visualViewport)visualViewport.addEventListener('resize',setVH);
+  // Shell height is pure CSS (100dvh) — the engine recomputes it itself when
+  // browser chrome settles or the device rotates. A JS override from
+  // window.innerHeight was tried and reverted: iOS standalone under-reports
+  // innerHeight, which pinned the tab bar ~100px above the screen bottom.
   // service worker: rest-over notifications + offline cache (needs secure context)
   if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js').catch(()=>{});
   // returning to a throttled tab: sync the timer display immediately
