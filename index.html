@@ -10,12 +10,28 @@
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root{
-  --bg:#0b0c0f; --card:#15171c; --card2:#1e222a; --line:#282d37;
-  --text:#eef1f6; --dim:#8f97a8;
-  --acc:#4c8dff; --acc-dim:rgba(76,141,255,.15);
+  /* dark: "white on black" editorial theme */
+  --bg:#0B0B0D; --bgtop:#17181D; --card:#151518; --card2:#1F1F24; --line:#28282E;
+  --text:#F5F3EE; --dim:#94948E;
+  --acc:#C9A96D; --acc-dim:rgba(201,169,109,.15);
+  --chrome:#F2EFE7; --chrome-text:#16171B;      /* inverse buttons/chips */
+  --navbg:#1A1B20; --navfg:#8D8D94; --navon:#FFFFFF;
+  --hdr:rgba(11,11,13,.85);
   --grn:#2fd671; --grn-dim:rgba(47,214,113,.12);
   --amb:#f5b62e; --red:#ff5c5c; --ppl:#b07aff; --gold:#ffcf4d;
-  --nav-h:58px;
+  --shadow:0 8px 24px rgba(0,0,0,.32);
+  --nav-h:62px;
+}
+/* light: "black on white" — warm paper & charcoal, toggled in Settings */
+body.light{
+  --bg:#ECEAE3; --bgtop:#F4F2EB; --card:#FFFFFF; --card2:#F0EEE6; --line:#E3E0D6;
+  --text:#1A1B1E; --dim:#85847C;
+  --acc:#A9884D; --acc-dim:rgba(169,136,77,.14);
+  --chrome:#1D1E24; --chrome-text:#F5F3EE;
+  --navbg:#1D1E24; --navfg:#96959C; --navon:#FFFFFF;
+  --hdr:rgba(236,234,227,.85);
+  --grn-dim:rgba(47,214,113,.16);
+  --shadow:0 10px 26px rgba(35,32,26,.10);
 }
 *{box-sizing:border-box}
 html{height:100%;overflow:hidden}
@@ -41,9 +57,8 @@ h1,h2,h3,p{margin:0}
 /* ---------- header ---------- */
 header{
   flex:0 0 auto;z-index:30;
-  padding:env(safe-area-inset-top) 14px 0;
-  background:rgba(11,12,15,.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-  border-bottom:1px solid var(--line);
+  padding:env(safe-area-inset-top) 16px 0;
+  background:var(--hdr);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
 }
 .hbar{height:50px;display:flex;align-items:center;justify-content:space-between}
 .hbar h1{font-size:21px;font-weight:800;letter-spacing:-.3px}
@@ -61,19 +76,21 @@ main{
 .page.active{display:block}
 
 /* ---------- bottom nav ---------- */
+/* floating charcoal pill nav (both themes), screenshot-style */
 nav{
   flex:0 0 auto;z-index:35;display:flex;
-  background:#0f1014;
-  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+  margin:6px 14px calc(10px + env(safe-area-inset-bottom));
+  background:var(--navbg);border-radius:24px;padding:4px 6px;
+  box-shadow:var(--shadow);
 }
-nav button{flex:1;height:var(--nav-h);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--dim);position:relative}
-nav button.on{color:var(--acc)}
+nav button{flex:1;height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--navfg);position:relative;border-radius:18px}
+nav button.on{color:var(--navon)}
 nav button svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 nav button span{font-size:10px;font-weight:600;letter-spacing:.2px}
-nav button .dot{position:absolute;top:7px;right:calc(50% - 17px);width:8px;height:8px;border-radius:4px;background:var(--grn)}
+nav button .dot{position:absolute;top:6px;right:calc(50% - 17px);width:8px;height:8px;border-radius:4px;background:var(--grn)}
 
 /* ---------- cards / common ---------- */
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:14px;margin-bottom:12px}
 .card h3{font-size:15px;font-weight:700;margin-bottom:10px}
 .row{display:flex;align-items:center;gap:10px}
 .grow{flex:1;min-width:0}
@@ -112,7 +129,7 @@ select.in{background-image:none}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;min-height:36px;padding:0 14px;border-radius:18px;background:var(--card2);color:var(--dim);font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
-.chip.on{background:var(--acc-dim);color:var(--acc);box-shadow:inset 0 0 0 1.5px var(--acc)}
+.chip.on{background:var(--chrome);color:var(--chrome-text);box-shadow:none}
 
 .tgl{width:52px;height:31px;border-radius:16px;background:var(--card2);position:relative;transition:.2s;flex:0 0 auto}
 .tgl::after{content:'';position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:13px;background:#5a6272;transition:.2s}
@@ -168,15 +185,15 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 
 /* ---------- rest timer pill ---------- */
 #restpill{
-  position:fixed;left:10px;right:10px;z-index:40;
-  bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 10px);
-  background:rgba(17,19,24,.97);border:1px solid var(--line);border-radius:18px;
+  position:fixed;left:12px;right:12px;z-index:40;
+  bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 22px);
+  background:var(--card);border:1px solid var(--line);border-radius:20px;
   padding:10px 12px 9px;
-  transform:translateY(150%);opacity:0;transition:transform .25s,opacity .25s;
-  box-shadow:0 10px 34px rgba(0,0,0,.55),0 0 0 1.5px rgba(76,141,255,.4);
+  transform:translateY(160%);opacity:0;transition:transform .25s,opacity .25s;
+  box-shadow:var(--shadow),0 0 0 1.5px var(--line);
 }
 #restpill.show{transform:none;opacity:1}
-#restpill.donefx{box-shadow:0 10px 34px rgba(0,0,0,.55),0 0 0 1.5px rgba(47,214,113,.65)}
+#restpill.donefx{box-shadow:var(--shadow),0 0 0 1.5px rgba(47,214,113,.65)}
 #rt-track{height:6px;border-radius:3px;background:var(--card2);overflow:hidden;margin-bottom:8px}
 #rt-fill{height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,var(--acc),#8b5cf6);transition:width .2s linear}
 #restpill.donefx #rt-fill{background:var(--grn)}
@@ -205,8 +222,8 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 /* ---------- toasts ---------- */
 #toasts{position:fixed;top:calc(env(safe-area-inset-top) + 58px);left:14px;right:14px;z-index:70;pointer-events:none;display:flex;flex-direction:column;gap:8px}
 .toast{
-  background:#20242c;border:1px solid var(--line);border-radius:14px;padding:12px 15px;
-  font-size:14.5px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.45);
+  background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:12px 15px;
+  color:var(--text);font-size:14.5px;font-weight:600;box-shadow:var(--shadow);
   opacity:0;transform:translateY(-8px);transition:.25s;
 }
 .toast.in{opacity:1;transform:none}
@@ -247,32 +264,32 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 .statgrid .v{font-size:20px;font-weight:800}
 .statgrid .k{font-size:11.5px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
 
-/* ---------- modern polish ---------- */
-body{background:linear-gradient(180deg,#141826 0%,var(--bg) 320px) no-repeat,var(--bg)}
-.btn,.chip,.rt-btn,.set-type,.chk,.icon-btn{transition:transform .12s,filter .15s,background .15s}
+/* ---------- editorial polish ---------- */
+body{background:linear-gradient(180deg,var(--bgtop) 0%,var(--bg) 320px) no-repeat,var(--bg)}
+.btn,.chip,.rt-btn,.set-type,.chk,.icon-btn{transition:transform .12s,filter .15s,background .15s,color .15s}
 .btn:active{transform:scale(.975)}
-.btn.primary{background:linear-gradient(135deg,#4c8dff,#7a5cff);box-shadow:0 4px 16px rgba(86,110,255,.25)}
+.btn.primary{background:var(--chrome);color:var(--chrome-text);box-shadow:var(--shadow)}
 .btn.green{background:linear-gradient(135deg,#34e07a,#17b45a);box-shadow:0 4px 16px rgba(47,214,113,.22)}
-.card{border-radius:18px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
-.hbar h1{background:linear-gradient(90deg,#fff 30%,#9db7ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-nav button.on svg{filter:drop-shadow(0 0 7px rgba(76,141,255,.65))}
-.toast.pr{box-shadow:0 0 26px rgba(255,207,77,.3),0 8px 24px rgba(0,0,0,.45);font-size:15.5px}
+.card{box-shadow:var(--shadow)}
+.hbar h1{font-size:21px;letter-spacing:-.4px;color:var(--text)}
+nav button.on svg{filter:drop-shadow(0 0 6px rgba(255,255,255,.4))}
+.toast.pr{box-shadow:0 0 26px rgba(255,207,77,.3),var(--shadow);font-size:15.5px}
 .bal-fill{background:linear-gradient(90deg,#4c8dff,#8b5cf6)}
-.set-in:focus{box-shadow:0 0 0 3px rgba(76,141,255,.16)}
-.in:focus{box-shadow:0 0 0 3px rgba(76,141,255,.13)}
-.seg>button.on{background:linear-gradient(135deg,#4c8dff,#6f5cff)}
+.set-in:focus{box-shadow:0 0 0 3px var(--acc-dim)}
+.in:focus{box-shadow:0 0 0 3px var(--acc-dim)}
+.seg>button.on{background:var(--chrome);color:var(--chrome-text)}
 
-/* quote card */
+/* quote card — editorial serif */
 .quote{position:relative;padding:18px 16px 14px;overflow:hidden}
-.qtext{font-size:16px;font-weight:600;line-height:1.5;position:relative}
+.qtext{font-family:ui-serif,'New York',Georgia,serif;font-size:17.5px;font-weight:600;line-height:1.5;position:relative}
 .qwho{color:var(--dim);font-size:13px;margin-top:8px;font-weight:600}
-.qmark{position:absolute;top:0;right:12px;font-size:70px;font-weight:800;color:rgba(76,141,255,.15);line-height:1;pointer-events:none}
+.qmark{position:absolute;top:0;right:12px;font-size:70px;font-weight:800;color:var(--acc);opacity:.18;line-height:1;pointer-events:none}
 
 /* persistent setup note */
-.pin-note{font-size:13px;color:#9db7ff;background:rgba(76,141,255,.09);border-radius:9px;padding:6px 10px;margin-top:8px}
+.pin-note{font-size:13px;color:var(--acc);background:var(--acc-dim);border-radius:9px;padding:6px 10px;margin-top:8px}
 
-/* strength level chip */
-.levelchip{flex:0 0 auto;padding:9px 16px;border-radius:14px;font-weight:800;font-size:15px;background:linear-gradient(135deg,#8b5cf6,#4c8dff);color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
+/* strength level chip — bronze */
+.levelchip{flex:0 0 auto;padding:9px 16px;border-radius:14px;font-weight:800;font-size:15px;background:linear-gradient(135deg,#D3B075,#9E7B3D);color:#fff;box-shadow:0 4px 14px rgba(201,169,109,.35)}
 
 /* plate calculator visual */
 .plates-viz{display:flex;align-items:center;justify-content:center;gap:3px;padding:16px 4px 4px;min-height:130px}
@@ -314,8 +331,17 @@ nav button.on svg{filter:drop-shadow(0 0 7px rgba(76,141,255,.65))}
 
 /* v3.2: applied by the standalone shell healer when iOS reports the bottom
    safe-area inset as 0 despite the home indicator being present */
-body.vfix nav{padding-bottom:max(env(safe-area-inset-bottom),24px)}
-body.vfix #restpill{bottom:calc(var(--nav-h) + max(env(safe-area-inset-bottom),24px) + 10px)}
+body.vfix nav{margin-bottom:calc(10px + max(env(safe-area-inset-bottom),24px))}
+body.vfix #restpill{bottom:calc(var(--nav-h) + max(env(safe-area-inset-bottom),24px) + 22px)}
+
+/* ---------- v4: greeting + light-mode fine-tuning ---------- */
+.greet-wrap{padding:8px 4px 16px}
+.greet-eyebrow{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.greet{font-size:30px;font-weight:800;letter-spacing:-.6px;line-height:1.15}
+.greet .nm{font-family:ui-serif,'New York',Georgia,serif;font-style:italic;font-weight:600;color:var(--acc)}
+body.light .overlay{background:rgba(24,21,15,.35)}
+body.light .toast.pr{color:#7A5D12;background:rgba(201,169,109,.2);border-color:#C9A96D}
+body.light .qmark{opacity:.25}
 </style>
 </head>
 <body>
@@ -404,8 +430,8 @@ const BASE_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Qu
 const MUSCLES=[...BASE_MUSCLES,'Front Delts','Side Delts','Rear Delts','Adductors','Abductors','Lower Back','Obliques'];
 const REGION={'Front Delts':'Shoulders','Side Delts':'Shoulders','Rear Delts':'Shoulders','Adductors':'Quads','Abductors':'Glutes','Lower Back':'Back','Obliques':'Abs'};
 const EQUIP=['Barbell','Dumbbell','Machine','Cable','Bodyweight','Kettlebell','Smith Machine','Band','Other'];
-const APP_VER='3.2';   // shown in Settings — lets you check which build a device runs
-const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false};
+const APP_VER='4.0';   // shown in Settings — lets you check which build a device runs
+const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false,theme:'dark',name:''};
 
 const E=(id,name,m,s,e)=>({id,name,m,s,e});
 const SEED=[
@@ -668,6 +694,13 @@ const workoutsDesc=()=>[...S.workouts].sort((a,b)=>b.finishedAt-a.finishedAt);
 const saveSettings=()=>kvPut('settings',S.set);
 function settingsSheet(){
   const c=h('div');
+  c.append(h('span',{class:'lbl'},'Your name'),
+    h('input',{class:'in',placeholder:'For greetings — leave blank to skip',value:S.set.name||'',
+      oninput:e=>{S.set.name=e.target.value;saveSettings();}}));
+  c.append(h('span',{class:'lbl'},'Theme'),
+    seg([['dark','White on black'],['light','Black on white']],S.set.theme||'dark',v=>{
+      S.set.theme=v;saveSettings();applyTheme();renderTab();
+    }));
   c.append(h('span',{class:'lbl'},'Units'),
     seg(['kg','lb'],S.set.unit,v=>{S.set.unit=v;saveSettings();}));
   const numRow=(label,key,hint)=>{
@@ -691,6 +724,7 @@ function settingsSheet(){
   c.append(h('span',{class:'lbl'},'Rest timer alerts'));
   tglRow('Sound','sound');
   tglRow('Vibration','vibrate');
+  c.append(h('p',{class:'tiny dim',style:'margin:4px 2px 0'},'iPhone note: web apps can’t drive the vibration motor — IronLog taps the system haptic instead (iOS 18+, best-effort). Sound is the reliable alert.'));
   // notification toggle: enabling asks for permission (must be a user gesture)
   const ns=notifSupport();
   const nStatus=h('p',{class:'tiny dim',style:'margin:2px 2px 0'});
@@ -923,6 +957,11 @@ function renderLog(){
   updateNavDot();
   const pg=$('#page-log');pg.replaceChildren();
   if(!S.active){
+    const g8=greetLine();
+    pg.append(h('div',{class:'greet-wrap'},
+      h('div',{class:'greet-eyebrow'},new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'})),
+      h('div',{class:'greet'},g8.base+(g8.name?', ':''),
+        g8.name?h('span',{class:'nm'},g8.name):null,g8.punct)));
     pg.append(h('section',{class:'card'},
       h('h3',{},'Workout'),
       h('button',{class:'btn primary',onclick:startEmpty},'Start Empty Workout')));
@@ -1420,7 +1459,7 @@ function tickRest(){
 function restDone(){
   beep();
   notifyRestDone(RT.label);
-  if(S.set.vibrate&&navigator.vibrate){try{navigator.vibrate([250,120,250]);}catch(e){}}
+  haptic([250,120,250]);
   const p=$('#restpill');
   p.classList.add('donefx');
   $('#rt-time').textContent='Go!';
@@ -1697,9 +1736,10 @@ function chartReady(){
   if(!window.Chart)return false;
   if(!chartInit){
     chartInit=true;
-    Chart.defaults.color='#8f97a8';
-    Chart.defaults.borderColor='rgba(255,255,255,.08)';
-    Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
+    const cs=getComputedStyle(document.body);
+    Chart.defaults.color=cs.getPropertyValue('--dim').trim()||'#94948E';
+    Chart.defaults.borderColor=document.body.classList.contains('light')?'rgba(0,0,0,.08)':'rgba(255,255,255,.08)';
+    Chart.defaults.font.family=cs.fontFamily;
   }
   return true;
 }
@@ -2006,6 +2046,46 @@ function photoViewer(p){
 }
 
 /* ==========================================================================
+   THEME + GREETING + HAPTICS
+   ========================================================================== */
+function applyTheme(){
+  const light=S.set.theme==='light';
+  document.body.classList.toggle('light',light);
+  const m=document.querySelector('meta[name="theme-color"]');
+  if(m)m.setAttribute('content',light?'#ECEAE3':'#0B0B0D');
+  chartInit=false;   // charts re-read theme colours on next draw
+}
+// time-of-day + rotating greeting; name is optional and simply omitted
+function greetLine(){
+  const n=(S.set.name||'').trim();
+  const hh=new Date().getHours();
+  const tod=hh<5?'Still up':hh<12?'Good morning':hh<17?'Good afternoon':'Good evening';
+  const opts=[[tod,'.'],['Hello','.'],['Ready to exercise','?'],['Time to move','.'],['Let’s get to work','.'],['Welcome back','.']];
+  const pick=opts[Math.floor(Date.now()/864e5)%opts.length];
+  return {base:pick[0],punct:pick[1],name:n};
+}
+/* Vibration honesty: iOS WebKit has never shipped navigator.vibrate, which is
+   why the phone never buzzed. Fallback: programmatically toggling a native
+   switch control fires a real system haptic on iOS 18+ — best-effort, and a
+   silent no-op anywhere it isn't supported. Sound stays the reliable alert. */
+let hapticEl=null;
+function haptic(pattern){
+  if(!S.set.vibrate)return;
+  if(navigator.vibrate){try{navigator.vibrate(pattern);}catch(e){}return;}
+  try{
+    if(!hapticEl){
+      hapticEl=document.createElement('input');
+      hapticEl.type='checkbox';
+      hapticEl.setAttribute('switch','');
+      hapticEl.style.cssText='position:fixed;left:-99px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.append(hapticEl);
+    }
+    const taps=Array.isArray(pattern)?Math.min(4,Math.ceil(pattern.length/2)):1;
+    for(let i=0;i<taps;i++)setTimeout(()=>hapticEl.click(),i*120);
+  }catch(e){}
+}
+
+/* ==========================================================================
    QUOTES + ENCOURAGEMENT + PR CELEBRATION
    ========================================================================== */
 const QUOTES=[
@@ -2046,6 +2126,7 @@ function maybeEncourage(en,st,j){
 // near-maximal (RPE ≥ 9). Deliberately subtler than the PR confetti.
 function setDoneFX(el,big){
   if(!el)return;
+  haptic(15);
   el.classList.remove('pop');void el.offsetWidth;el.classList.add('pop');
   const r=el.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
   const ring=h('div',{style:'position:fixed;left:'+cx+'px;top:'+cy+'px;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--grn);z-index:75;pointer-events:none'});
@@ -2091,7 +2172,7 @@ function celebrateBig(){
   celebrate();
   setTimeout(celebrate,350);
   setTimeout(celebrate,700);
-  if(S.set.vibrate&&navigator.vibrate){try{navigator.vibrate([120,60,120,60,240]);}catch(e){}}
+  haptic([120,60,120,60,240]);
 }
 
 /* ==========================================================================
@@ -2156,12 +2237,16 @@ function foldMax(rec,names){
 // stylised low-poly front/back muscle map. Groups carry a glow class:
 // pulsing red (fatigued) → amber → breathing green (fresh) → grey (untrained)
 function bodySVG(view,rec){
+  const light=document.body.classList.contains('light');
+  const pal=light
+    ?{cold:'#DFDCD2',gray:'#D9D6CC',grayStroke:'rgba(0,0,0,.06)'}
+    :{cold:'#242a35',gray:'#1d222c',grayStroke:'rgba(255,255,255,.05)'};
   const rec2={...rec,
     Shoulders:foldMax(rec,view==='front'?['Shoulders','Front Delts','Side Delts']:['Shoulders','Rear Delts','Side Delts'])};
-  const f=m=>{const r=rec2[m];return r&&r.last!=null?fatigueColor(r.fatigue):'#242a35';};
+  const f=m=>{const r=rec2[m];return r&&r.last!=null?fatigueColor(r.fatigue):pal.cold;};
   const cls=m=>{const r=rec2[m];return !r||r.last==null?'mm-cold':r.fatigue>=67?'mm-hot':r.fatigue>=30?'mm-warm':'mm-fresh';};
   const sh=(m,inner)=>'<g data-m="'+m+'" class="'+cls(m)+'" fill="'+f(m)+'" stroke="rgba(0,0,0,.45)" stroke-width="1" stroke-linejoin="round">'+inner+'</g>';
-  const gray=inner=>'<g fill="#1d222c" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-linejoin="round">'+inner+'</g>';
+  const gray=inner=>'<g fill="'+pal.gray+'" stroke="'+pal.grayStroke+'" stroke-width="1" stroke-linejoin="round">'+inner+'</g>';
   const P=pts=>'<polygon points="'+pts+'"/>';
   const MIR=pts=>pts.split(' ').map(pt=>{const c=pt.split(',');return (120-parseFloat(c[0]))+','+c[1];}).join(' ');
   const PM=pts=>P(pts)+P(MIR(pts));   // shape + mirrored twin
@@ -2282,9 +2367,9 @@ function drawRadar(cv,sp){
       plugins:{legend:{display:false}},
       scales:{r:{beginAtZero:true,suggestedMax:100,
         ticks:{display:false,stepSize:25},
-        grid:{color:'rgba(255,255,255,.08)'},
-        angleLines:{color:'rgba(255,255,255,.08)'},
-        pointLabels:{color:'#8f97a8',font:{size:10.5}}}}}});
+        grid:{color:Chart.defaults.borderColor},
+        angleLines:{color:Chart.defaults.borderColor},
+        pointLabels:{color:Chart.defaults.color,font:{size:10.5}}}}}});
 }
 // floating glow-dust behind the radar (pure CSS animation, composited)
 function radarFX(box){
@@ -2336,6 +2421,7 @@ async function boot(){
     if(e&&e.m!==p.m){e.m=p.m;e.s=p.s;await dbPut('exercises',e);}
   }
   S.set={...DEF,...((await kvGet('settings'))||{})};
+  applyTheme();
   S.active=(await kvGet('active'))||null;
   if(S.active)for(const en of S.active.exs){       // restore caches for a resumed session
     S.prev[en.exId]=prevSetsFor(en.exId);
