@@ -311,6 +311,11 @@ nav button.on svg{filter:drop-shadow(0 0 7px rgba(76,141,255,.65))}
 
 /* ---------- v3: floating Add button in the exercise picker ---------- */
 .sticky-add{position:sticky;bottom:-1px;padding:12px 0 6px;background:linear-gradient(transparent,var(--card) 40%);z-index:3}
+
+/* v3.2: applied by the standalone shell healer when iOS reports the bottom
+   safe-area inset as 0 despite the home indicator being present */
+body.vfix nav{padding-bottom:max(env(safe-area-inset-bottom),24px)}
+body.vfix #restpill{bottom:calc(var(--nav-h) + max(env(safe-area-inset-bottom),24px) + 10px)}
 </style>
 </head>
 <body>
@@ -399,7 +404,7 @@ const BASE_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Qu
 const MUSCLES=[...BASE_MUSCLES,'Front Delts','Side Delts','Rear Delts','Adductors','Abductors','Lower Back','Obliques'];
 const REGION={'Front Delts':'Shoulders','Side Delts':'Shoulders','Rear Delts':'Shoulders','Adductors':'Quads','Abductors':'Glutes','Lower Back':'Back','Obliques':'Abs'};
 const EQUIP=['Barbell','Dumbbell','Machine','Cable','Bodyweight','Kettlebell','Smith Machine','Band','Other'];
-const APP_VER='3.1';   // shown in Settings — lets you check which build a device runs
+const APP_VER='3.2';   // shown in Settings — lets you check which build a device runs
 const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false};
 
 const E=(id,name,m,s,e)=>({id,name,m,s,e});
@@ -2359,20 +2364,41 @@ async function boot(){
     const a=document.activeElement;
     if(!a||!(a.matches&&a.matches('input,textarea')))window.scrollTo(0,0);
   },60));
-  // iOS-standalone shell healer: visualViewport reports the true visible
-  // height; if the layout viewport came up short at cold launch (long-standing
-  // standalone quirk), grow the shell to match. Grow-only, so the keyboard
-  // (which only shrinks visualViewport) can never squash the layout.
+  // iOS-standalone shell healer. Field-observed bug (iPhone 17 / iOS 26 home-
+  // screen app): the webview canvas is full-screen, but the layout viewport
+  // AND visualViewport are both reported short by status-bar + home-indicator
+  // (~93pt), leaving dead space under the tab bar. The one measurement iOS
+  // can't fudge there is screen.width/height — in standalone, the app IS the
+  // screen. Grow-only (keyboard only shrinks vv, so it can never squash us),
+  // capped at 140px so nothing pathological can stretch the shell.
   function fixShell(){
-    if(!window.visualViewport)return;
-    const vv=Math.round(visualViewport.height);
+    const standalone=navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+    let target=window.visualViewport?Math.round(visualViewport.height):0;
+    if(standalone){
+      const portrait=matchMedia('(orientation: portrait)').matches;
+      const sh=portrait?Math.max(screen.width,screen.height):Math.min(screen.width,screen.height);
+      if(sh>target)target=sh;
+    }
+    if(!target)return;
     const cur=Math.round(document.body.getBoundingClientRect().height);
-    if(vv-cur>2)document.body.style.height=vv+'px';
+    const grow=target-cur;
+    if(grow>2&&grow<=140){
+      document.documentElement.style.height=target+'px';   // html clips at ICB otherwise
+      document.body.style.height=target+'px';
+      // in this state iOS reports safe-area-inset-bottom as 0, so give the
+      // nav its home-indicator clearance explicitly (see body.vfix CSS)
+      document.body.classList.add('vfix');
+    }
   }
   fixShell();
   if(window.visualViewport)visualViewport.addEventListener('resize',fixShell);
   addEventListener('pageshow',fixShell);
-  addEventListener('orientationchange',()=>{document.body.style.height='';setTimeout(fixShell,350);});
+  addEventListener('orientationchange',()=>{
+    document.documentElement.style.height='';
+    document.body.style.height='';
+    document.body.classList.remove('vfix');
+    setTimeout(fixShell,350);
+  });
   // service worker: rest-over notifications + offline cache (needs secure context)
   if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('sw.js').catch(()=>{});
   // returning to a throttled tab: sync the timer display immediately
