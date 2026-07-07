@@ -28,13 +28,15 @@ body.light{
   --text:#1A1B1E; --dim:#85847C;
   --acc:#A9884D; --acc-dim:rgba(169,136,77,.14);
   --chrome:#1D1E24; --chrome-text:#F5F3EE;
-  --navbg:#1D1E24; --navfg:#96959C; --navon:#FFFFFF;
+  --navbg:#FFFFFF; --navfg:#8B8A81; --navon:#17181B;
   --hdr:rgba(236,234,227,.85);
   --grn-dim:rgba(47,214,113,.16);
   --shadow:0 10px 26px rgba(35,32,26,.10);
 }
 *{box-sizing:border-box}
-html{height:100%;overflow:hidden}
+/* text-size-adjust: iOS inflates some text after a landscape→portrait
+   rotation ("text autosizing"); pinning it to 100% stops the font-size drift */
+html{height:100%;overflow:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{
   margin:0;background:var(--bg);color:var(--text);
   font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
@@ -340,8 +342,11 @@ body.vfix #restpill{bottom:calc(var(--nav-h) + max(env(safe-area-inset-bottom),2
 .greet{font-size:30px;font-weight:800;letter-spacing:-.6px;line-height:1.15}
 .greet .nm{font-family:ui-serif,'New York',Georgia,serif;font-style:italic;font-weight:600;color:var(--acc)}
 body.light .overlay{background:rgba(24,21,15,.35)}
-body.light .toast.pr{color:#7A5D12;background:rgba(201,169,109,.2);border-color:#C9A96D}
+body.light .toast.pr{color:#6B5210;background:#F1E5C7;border-color:#C9A96D}
 body.light .qmark{opacity:.25}
+body.light nav{border:1px solid var(--line)}
+body.light nav button.on svg{filter:drop-shadow(0 0 5px rgba(0,0,0,.18))}
+input.range{flex:1;accent-color:var(--acc);height:34px;margin:0}
 </style>
 </head>
 <body>
@@ -430,8 +435,8 @@ const BASE_MUSCLES=['Chest','Back','Shoulders','Biceps','Triceps','Forearms','Qu
 const MUSCLES=[...BASE_MUSCLES,'Front Delts','Side Delts','Rear Delts','Adductors','Abductors','Lower Back','Obliques'];
 const REGION={'Front Delts':'Shoulders','Side Delts':'Shoulders','Rear Delts':'Shoulders','Adductors':'Quads','Abductors':'Glutes','Lower Back':'Back','Obliques':'Abs'};
 const EQUIP=['Barbell','Dumbbell','Machine','Cable','Bodyweight','Kettlebell','Smith Machine','Band','Other'];
-const APP_VER='4.0';   // shown in Settings — lets you check which build a device runs
-const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false,theme:'dark',name:''};
+const APP_VER='4.1';   // shown in Settings — lets you check which build a device runs
+const DEF={unit:'kg',restSec:120,barWeight:20,plates:[25,20,15,10,5,2.5,1.25],sound:true,vibrate:true,notify:false,theme:'dark',name:'',strScale:1};
 
 const E=(id,name,m,s,e)=>({id,name,m,s,e});
 const SEED=[
@@ -703,6 +708,15 @@ function settingsSheet(){
     }));
   c.append(h('span',{class:'lbl'},'Units'),
     seg(['kg','lb'],S.set.unit,v=>{S.set.unit=v;saveSettings();}));
+  // strength-score calibration: multiplies the bodyweight standards your
+  // lifts are measured against — raise it if scores feel too generous
+  const sVal=h('span',{class:'small bold num',style:'width:52px;text-align:right'},'×'+(S.set.strScale||1).toFixed(2));
+  c.append(h('span',{class:'lbl'},'Strength score difficulty'),
+    h('div',{class:'row'},
+      h('input',{type:'range',min:'0.6',max:'1.8',step:'0.05',value:S.set.strScale||1,class:'range',
+        oninput:e=>{S.set.strScale=parseFloat(e.target.value)||1;sVal.textContent='×'+S.set.strScale.toFixed(2);saveSettings();}}),
+      sVal),
+    h('p',{class:'tiny dim',style:'margin:4px 2px 0'},'×1.00 = default calibration. If your label reads too high (or low), drag until it matches how you’d rate yourself — the radar and score rescale instantly.'));
   const numRow=(label,key,hint)=>{
     c.append(h('span',{class:'lbl'},label),
       h('input',{class:'in num',inputmode:'decimal',value:S.set[key],
@@ -774,7 +788,8 @@ async function buildExportData(){
   const photos=await Promise.all(S.photos.map(async p=>({id:p.id,date:p.date,dataUrl:await blobToDataUrl(p.blob)})));
   return {app:'ironlog',version:1,exportedAt:new Date().toISOString(),
     settings:S.set,exercises:[...S.ex.values()],workouts:S.workouts,
-    templates:S.templates,body:S.body,photos};
+    templates:S.templates,body:S.body,photos,
+    deadSeeds:(await kvGet('deadSeeds'))||[]};
 }
 async function exportJSON(){
   try{
@@ -805,6 +820,7 @@ async function importJSON(file){
 async function applyImport(data){
   for(const s of['exercises','workouts','templates','body','photos'])await dbClear(s);
   await kvDel('active');
+  await kvPut('deadSeeds',data.deadSeeds||[]);
   for(const e of data.exercises||[])if(e&&e.id&&e.name)await dbPut('exercises',{m:'Other',s:[],e:'Other',...e});
   for(const w of data.workouts||[])if(w&&w.id&&Array.isArray(w.exs))await dbPut('workouts',{name:'Workout',notes:'',dur:0,...w});
   for(const t of data.templates||[])if(t&&t.id&&Array.isArray(t.exs))await dbPut('templates',{name:'Template',pos:0,...t});
@@ -889,7 +905,7 @@ function addExerciseToActive(exId,tpl){
 }
 
 /* ----- exercise picker (shared by Log, Templates, Progress) ----- */
-function pickExercises({multi=true,title='Add exercises',onDone,allowCreate=true}){
+function pickExercises({multi=true,title='Add exercises',onDone,allowCreate=true,exclude=null,editable=true}){
   const sel=new Set();let q='';
   const list=h('div');
   const addBtn=multi?h('button',{class:'btn primary mt12',onclick:()=>{if(sel.size){close();onDone([...sel]);}}},'Add (0)'):null;
@@ -897,6 +913,7 @@ function pickExercises({multi=true,title='Add exercises',onDone,allowCreate=true
   function rows(){
     const ql=q.toLowerCase();
     const exs=[...S.ex.values()].sort((a,b)=>a.name.localeCompare(b.name))
+      .filter(x=>x.id!==exclude)
       .filter(x=>!ql||x.name.toLowerCase().includes(ql)||x.m.toLowerCase().includes(ql)||(x.e||'').toLowerCase().includes(ql));
     if(!exs.length){list.replaceChildren(h('div',{class:'empty'},h('p',{},'No match — create it with “+ New”')));return;}
     list.replaceChildren(...exs.map(x=>{
@@ -907,7 +924,9 @@ function pickExercises({multi=true,title='Add exercises',onDone,allowCreate=true
       multi?h('div',{class:'sel-dot'},'✓'):null,
       h('div',{class:'grow'},
         h('div',{class:'bold',style:'font-size:15.5px'},x.name),
-        h('div',{class:'tiny dim'},x.m+(x.s&&x.s.length?', '+x.s.join(', '):'')+' · '+x.e)));
+        h('div',{class:'tiny dim'},x.m+(x.s&&x.s.length?', '+x.s.join(', '):'')+' · '+x.e)),
+      editable?h('button',{class:'icon-btn',style:'width:38px;height:38px;flex:0 0 auto;font-size:17px;color:var(--dim)',
+        onclick:ev=>{ev.stopPropagation();editExerciseSheet(x,()=>{rows();renderTab();});}},'⚙'):null);
       return row;
     }));
   }
@@ -944,6 +963,112 @@ function newExerciseSheet(onSaved){
       close();toast('Exercise created');
       if(onSaved)onSaved(ex);
     }},'Create exercise')));
+}
+/* ----- edit / delete an exercise. History references exercises by id, so
+   edits automatically apply to every past AND future workout. Deleting a
+   used exercise requires picking a replacement — all logged sets (weight,
+   reps, RPE) are remapped onto it so no data is ever lost. ----- */
+function editExerciseSheet(ex,onChanged){
+  const name=h('input',{class:'in',value:ex.name});
+  let m=ex.m,eq=ex.e;
+  const sec=new Set(ex.s||[]);
+  const mSel=h('select',{class:'in',onchange:e=>m=e.target.value},
+    MUSCLES.map(x=>h('option',{value:x,selected:x===ex.m?'':null},x)));
+  const eqSel=h('select',{class:'in',onchange:e=>eq=e.target.value},
+    EQUIP.map(x=>h('option',{value:x,selected:x===ex.e?'':null},x)));
+  const chips=h('div',{class:'chips',style:'flex-wrap:wrap'},MUSCLES.map(x=>{
+    const ch=h('button',{class:'chip'+(sec.has(x)?' on':''),onclick:()=>{sec.has(x)?sec.delete(x):sec.add(x);ch.classList.toggle('on');}},x);
+    return ch;}));
+  const used=S.workouts.filter(w=>w.exs.some(en=>en.exId===ex.id)).length;
+  const close=sheet('Edit exercise',h('div',{},
+    h('span',{class:'lbl'},'Name'),name,
+    h('span',{class:'lbl'},'Primary muscle'),mSel,
+    h('span',{class:'lbl'},'Secondary muscles'),chips,
+    h('span',{class:'lbl'},'Equipment'),eqSel,
+    h('button',{class:'btn primary mt12',onclick:async()=>{
+      const nm=name.value.trim();
+      if(!nm){toast('Name required');return;}
+      ex.name=nm;ex.m=m;ex.s=[...sec];ex.e=eq;ex.edited=1;
+      await dbPut('exercises',ex);
+      close();
+      toast('Updated — applies to all history');
+      if(onChanged)onChanged();
+    }},'Save Changes'),
+    h('p',{class:'tiny dim',style:'margin:8px 2px 0'},'Changes apply to every past and future workout'+(used?' ('+used+' logged so far)':'')+'.'),
+    h('hr'),
+    h('button',{class:'btn danger',onclick:()=>deleteExerciseFlow(ex,close,onChanged)},'Delete Exercise')));
+}
+async function deleteExerciseFlow(ex,closeEdit,onChanged){
+  const usedW=S.workouts.filter(w=>w.exs.some(en=>en.exId===ex.id)).length;
+  const usedT=S.templates.filter(t=>t.exs.some(te=>te.exId===ex.id)).length;
+  const usedA=!!(S.active&&S.active.exs.some(en=>en.exId===ex.id));
+  const finish=async()=>{
+    if(SEED.some(s2=>s2.id===ex.id)){          // tombstone so boot doesn't re-seed it
+      const dead=(await kvGet('deadSeeds'))||[];
+      if(!dead.includes(ex.id)){dead.push(ex.id);await kvPut('deadSeeds',dead);}
+    }
+    await dbDel('exercises',ex.id);
+    S.ex.delete(ex.id);
+    delete S.prev[ex.id];delete S.records[ex.id];
+    if(closeEdit)closeEdit();
+    if(onChanged)onChanged();else renderTab();
+  };
+  if(!usedW&&!usedT&&!usedA){
+    if(await ask('Delete '+ex.name+'?','It was never logged — this only removes it from the library.','Delete',true)){
+      await finish();
+      toast('Exercise deleted');
+    }
+    return;
+  }
+  const where=[usedW?usedW+' workout'+(usedW>1?'s':''):null,
+    usedT?usedT+' template'+(usedT>1?'s':''):null,
+    usedA?'the current workout':null].filter(Boolean).join(', ');
+  const ok=await ask('Delete '+ex.name+'?',
+    'It appears in '+where+'. Pick a replacement exercise and every logged set (weight, reps, RPE) moves to it — nothing is lost.',
+    'Choose replacement',true);
+  if(!ok)return;
+  pickExercises({multi:false,allowCreate:false,editable:false,exclude:ex.id,title:'Move history to…',onDone:async ids=>{
+    await remapExercise(ex.id,ids[0]);
+    await finish();
+    const nx=S.ex.get(ids[0]);
+    toast('History moved to '+(nx?nx.name:'replacement'));
+  }});
+}
+// rewires every reference from oldId → newId; duplicate entries in the same
+// workout are merged (sets appended) so nothing renders twice
+async function remapExercise(oldId,newId){
+  const remapEntries=list=>{
+    const out=[];
+    for(const en of list){
+      const id=en.exId===oldId?newId:en.exId;
+      const tgt=id===newId?out.find(e=>e.exId===newId):null;
+      if(tgt&&tgt.sets&&en.sets){
+        tgt.sets.push(...en.sets);
+        if(en.notes&&!tgt.notes)tgt.notes=en.notes;
+      }else if(tgt){
+        /* template targets: keep the first entry */
+      }else{
+        en.exId=id;out.push(en);
+      }
+    }
+    return out;
+  };
+  for(const w of S.workouts){
+    if(!w.exs.some(en=>en.exId===oldId))continue;
+    w.exs=remapEntries(w.exs);
+    await dbPut('workouts',w);
+  }
+  for(const t of S.templates){
+    if(!t.exs.some(te=>te.exId===oldId))continue;
+    t.exs=remapEntries(t.exs);
+    await dbPut('templates',t);
+  }
+  if(S.active&&S.active.exs.some(en=>en.exId===oldId)){
+    S.active.exs=remapEntries(S.active.exs);
+    S.prev[newId]=prevSetsFor(newId);
+    S.records[newId]=computeRecords(newId);
+    saveActive();
+  }
 }
 
 /* ----- render: Log page ----- */
@@ -1063,10 +1188,10 @@ function setRow(i,j){
     st.t==='N'?String(setNumber(en,j)):st.t);
   const wIn=h('input',{class:'set-in num',type:'text',inputmode:'decimal',
     value:st.w!=null?fmtW(st.w):'',placeholder:g&&g.w!=null?fmtW(g.w):'−',
-    oninput:e=>{st.w=pf(e.target.value);saveActive();updateWoStats();}});
+    oninput:e=>{st.w=pf(e.target.value);saveActive();updateWoStats();reverifySet(en,st,row);}});
   const rIn=h('input',{class:'set-in num',type:'text',inputmode:'numeric',
     value:st.r!=null?st.r:'',placeholder:g&&g.r!=null?String(g.r):'−',
-    oninput:e=>{const v=pf(e.target.value);st.r=v==null?null:Math.round(v);saveActive();updateWoStats();}});
+    oninput:e=>{const v=pf(e.target.value);st.r=v==null?null:Math.round(v);saveActive();updateWoStats();reverifySet(en,st,row);}});
   const pIn=h('input',{class:'set-in num',type:'text',inputmode:'decimal',
     value:st.rpe!=null?st.rpe:'',placeholder:g&&g.rpe!=null?String(g.rpe):'−',
     oninput:e=>{st.rpe=pf(e.target.value);saveActive();}});
@@ -1127,7 +1252,7 @@ function milestoneFor(w,prevBest){
   if(prevBest!=null&&prevBest>=m)return null;      // already a member
   return m;
 }
-function checkPR(exId,st,row){
+function checkPR(exId,st,row,quiet){
   if(st.t==='W'||!st.r)return;
   const ex=S.ex.get(exId);
   const isBW=!!(ex&&ex.e==='Bodyweight');
@@ -1140,19 +1265,34 @@ function checkPR(exId,st,row){
   if(msgs.length){
     st.pr=1;
     if(row)row.classList.add('prset');
-    const emo=['🚀','🎉','🔥','💥','⚡','🏆'][Math.floor(Math.random()*6)];
-    toast(emo+' '+(ex?ex.name:'')+' — '+msgs.join(', '),{pr:true,dur:4500});
-    celebrate();
+    if(!quiet){
+      const emo=['🚀','🎉','🔥','💥','⚡','🏆'][Math.floor(Math.random()*6)];
+      toast(emo+' '+(ex?ex.name:'')+' — '+msgs.join(', '),{pr:true,dur:4500});
+      celebrate();
+    }
   }
   if(!isBW&&st.w){
     const m=milestoneFor(st.w,prevBestW);
     if(m!=null){
       st.pr=1;
       if(row)row.classList.add('prset');
-      toast('💯 '+fmtW(m)+' '+S.set.unit+' CLUB — '+(ex?ex.name:'')+'!',{pr:true,dur:5500});
-      celebrateBig();
+      if(!quiet){
+        toast('💯 '+fmtW(m)+' '+S.set.unit+' CLUB — '+(ex?ex.name:'')+'!',{pr:true,dur:5500});
+        celebrateBig();
+      }
     }
   }
+}
+// editing a set AFTER ticking it saves immediately (inputs write straight to
+// state + autosave); this re-checks the PR flag so a lowered weight doesn't
+// keep a stale gold ring, without re-firing toasts/confetti
+function reverifySet(en,st,row){
+  if(!st.done)return;
+  st.pr=0;
+  if(row)row.classList.remove('prset');
+  S.records[en.exId]=computeRecords(en.exId);
+  checkPR(en.exId,st,row,true);
+  saveActive();
 }
 
 /* ----- exercise / workout menus ----- */
@@ -1173,6 +1313,7 @@ function exMenu(i){
     mk('Plate calculator',()=>plateSheet(bestWeightGuess(en),ex)),
     mk('Warm-up calculator',()=>warmupSheet(i)),
     mk('Substitute exercise',()=>substituteSheet(i)),
+    mk('Edit exercise (name · muscles · type)',()=>editExerciseSheet(ex,()=>{if(S.tab==='log'&&S.active)renderLog();else renderTab();})),
     i>0?mk('Move up',()=>{const x=S.active.exs;[x[i-1],x[i]]=[x[i],x[i-1]];saveActive();renderLog();}):null,
     i<S.active.exs.length-1?mk('Move down',()=>{const x=S.active.exs;[x[i+1],x[i]]=[x[i],x[i+1]];saveActive();renderLog();}):null,
     mk('Remove exercise',async()=>{
@@ -2091,7 +2232,7 @@ function haptic(pattern){
 const QUOTES=[
   {q:'The last three or four reps is what makes the muscle grow.',a:'Arnold Schwarzenegger'},
   {q:'Everybody wants to be a bodybuilder, but nobody wants to lift no heavy-ass weights.',a:'Ronnie Coleman'},
-  {q:'The pain you feel today will be the strength you feel tomorrow.',a:'Unknown'},
+  {q:'The pain you feel today will be the strength you feel tomorrow.',a:'Fable'},
   {q:'A champion is someone who gets up when they can’t.',a:'Jack Dempsey'},
   {q:'Strength does not come from winning. Your struggles develop your strengths.',a:'Arnold Schwarzenegger'},
   {q:'The iron never lies to you. The iron will always kick you the real deal.',a:'Henry Rollins'},
@@ -2099,8 +2240,8 @@ const QUOTES=[
   {q:'Discipline is doing what you hate to do, but doing it like you love it.',a:'Mike Tyson'},
   {q:'If you think lifting is dangerous, try being weak.',a:'Bret Contreras'},
   {q:'There is no reason to be alive if you can’t do deadlift.',a:'Jón Páll Sigmarsson'},
-  {q:'You don’t have to be extreme, just consistent.',a:'Unknown'},
-  {q:'Small daily improvements are the key to staggering long-term results.',a:'Unknown'},
+  {q:'You don’t have to be extreme, just consistent.',a:'Fable'},
+  {q:'Small daily improvements are the key to staggering long-term results.',a:'Fable'},
 ];
 const ENC=[
   'Rough set — but you showed up. That’s the whole game.',
@@ -2148,7 +2289,9 @@ function setDoneFX(el,big){
 // confetti burst for PRs
 function celebrate(){
   const colors=['#ffcf4d','#4c8dff','#2fd671','#ef4444','#8b5cf6','#f59e0b','#ffffff'];
-  const wrap=h('div',{style:'position:fixed;inset:0;pointer-events:none;z-index:80;overflow:hidden'});
+  // z-index 65: confetti and flash stay BELOW toasts (z 70) so milestone
+  // banners are never washed out or covered
+  const wrap=h('div',{style:'position:fixed;inset:0;pointer-events:none;z-index:65;overflow:hidden'});
   document.body.append(wrap);
   const cx=innerWidth/2,cy=innerHeight*.3;
   for(let i=0;i<48;i++){
@@ -2166,7 +2309,7 @@ function celebrate(){
 }
 // milestone lifts get the full show: triple confetti + golden screen flash
 function celebrateBig(){
-  const flash=h('div',{style:'position:fixed;inset:0;z-index:79;pointer-events:none;background:radial-gradient(circle,rgba(255,207,77,.3),transparent 70%);opacity:0'});
+  const flash=h('div',{style:'position:fixed;inset:0;z-index:60;pointer-events:none;background:radial-gradient(circle,rgba(255,207,77,.3),transparent 70%);opacity:0'});
   document.body.append(flash);
   flash.animate([{opacity:0},{opacity:1},{opacity:0}],{duration:950,easing:'ease-out'}).onfinish=()=>flash.remove();
   celebrate();
@@ -2340,7 +2483,8 @@ function strengthProfile(){
     }
   }
   const per={};
-  for(const m of MUSCLES)per[m]=best[m]&&STR_REF[m]?Math.round(best[m].v/(bw*STR_REF[m])*100):0;
+  const scale=S.set.strScale||1;   // user-tunable standards difficulty
+  for(const m of MUSCLES)per[m]=best[m]&&STR_REF[m]?Math.round(best[m].v/(bw*STR_REF[m]*scale)*100):0;
   // granular groups feed their parent's radar axis (best of parent/children)
   const radar={};
   for(const m of RADAR_MUSCLES)radar[m]=per[m]||0;
@@ -2413,12 +2557,14 @@ async function loadAll(){
 async function boot(){
   await openDB();
   await loadAll();
-  // v3 backfill for existing installs: add new seed exercises, apply granular
-  // muscle tags to old seeds (custom exercises & imports are never touched)
-  for(const e of SEED)if(!S.ex.has(e.id)){S.ex.set(e.id,e);await dbPut('exercises',e);}
+  // v3 backfill for existing installs: add new seed exercises (unless the
+  // user deleted them — tombstoned in kv 'deadSeeds'), apply granular muscle
+  // tags to old seeds (skipped once the user has edited an exercise)
+  const deadSeeds=new Set((await kvGet('deadSeeds'))||[]);
+  for(const e of SEED)if(!S.ex.has(e.id)&&!deadSeeds.has(e.id)){S.ex.set(e.id,e);await dbPut('exercises',e);}
   for(const[id,p]of Object.entries(SEED_PATCH)){
     const e=S.ex.get(id);
-    if(e&&e.m!==p.m){e.m=p.m;e.s=p.s;await dbPut('exercises',e);}
+    if(e&&!e.edited&&e.m!==p.m){e.m=p.m;e.s=p.s;await dbPut('exercises',e);}
   }
   S.set={...DEF,...((await kvGet('settings'))||{})};
   applyTheme();
